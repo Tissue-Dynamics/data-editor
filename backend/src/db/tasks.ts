@@ -55,12 +55,12 @@ export class TaskService {
       task.id,
       task.prompt,
       task.data_hash,
-      task.selected_rows,
-      task.selected_columns,
+      task.selected_rows || null,
+      task.selected_columns || null,
       task.status,
       task.created_at,
-      task.session_id,
-      task.batch_id
+      task.session_id || null,
+      task.batch_id || null
     ).run();
     
     return task;

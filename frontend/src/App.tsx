@@ -51,6 +51,7 @@ function App() {
       isEstimate?: boolean;
     }>;
   } | null>(null);
+  const [taskHistoryRefreshKey, setTaskHistoryRefreshKey] = useState(0);
 
   const handleDataLoad = async (loadedData: DataRow[], fileName: string) => {
     // Create a new session when data is loaded
@@ -433,6 +434,7 @@ function App() {
     setIsTaskRunning(true);
     setTaskError(null);
     setTaskSteps([]); // Clear previous steps
+    setValidationSummary(null); // Clear previous validation summary
     
     try {
       // Create the task
@@ -490,13 +492,10 @@ function App() {
             });
             setIsTaskRunning(false);
             
-            // Clear task steps after a delay if no pending validations
-            setTimeout(() => {
-              const pendingValidations = Array.from(validations.values()).filter(v => v.status === 'auto_updated' && !v.confirmed).length;
-              if (pendingValidations === 0) {
-                setTaskSteps([]);
-              }
-            }, 3000);
+            // Refresh task history
+            setTaskHistoryRefreshKey(prev => prev + 1);
+            
+            // Don't automatically clear task steps - they should persist until next task
           } else if (statusResponse.status === 'failed') {
             setCurrentTask({
               ...newTask,
@@ -509,6 +508,9 @@ function App() {
             });
             setIsTaskRunning(false);
             eventSource.close();
+            
+            // Refresh task history
+            setTaskHistoryRefreshKey(prev => prev + 1);
           } else {
             // Still processing, poll again
             setTimeout(pollForCompletion, 1000);
@@ -666,6 +668,7 @@ function App() {
               {currentSession && (
                 <div className="bg-white rounded-lg shadow p-4">
                   <TaskHistory 
+                    key={taskHistoryRefreshKey}
                     sessionId={currentSession.id}
                     onTaskSelect={(task) => {
                       console.log('Selected historical task:', task);
