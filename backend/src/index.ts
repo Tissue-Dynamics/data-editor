@@ -305,7 +305,6 @@ app.post('/api/tasks/execute', async (c) => {
     }
 
     // Create task record in database
-    const taskId = crypto.randomUUID();
     const dataHash = createHash(JSON.stringify(data));
     
     // Get session ID from body if provided
@@ -313,13 +312,15 @@ app.post('/api/tasks/execute', async (c) => {
     
     // Create task in database
     const taskService = new TaskService(c.env.DB);
-    await taskService.createTask({
+    const createdTask = await taskService.createTask({
       prompt,
       data_hash: dataHash,
       selected_rows: selectedRows,
       selected_columns: selectedColumns,
       session_id: sessionId
     });
+    
+    const taskId = createdTask.id;
     
     // Also cache for quick access
     const task = {
@@ -341,6 +342,10 @@ app.post('/api/tasks/execute', async (c) => {
       selectedColumnsCount: selectedColumns?.length || 0,
     });
   } catch (error) {
+    console.error('Task execution error:', error);
+    if (error instanceof Error) {
+      return c.json({ error: `Invalid request: ${error.message}` }, 400);
+    }
     return c.json({ error: 'Invalid request body' }, 400);
   }
 });
