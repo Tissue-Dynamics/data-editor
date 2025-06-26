@@ -11,67 +11,90 @@ export const VersionHistory: React.FC<VersionHistoryProps> = ({
   currentIndex,
   onNavigate
 }) => {
+  // Don't render if only one version
+  if (dataHistory.length <= 1) return null;
+
   return (
-    <div className="bg-white rounded-lg shadow p-4 mb-4">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Version History</h3>
-      
-      <div className="flex items-center gap-2 mb-3">
+    <div className="flex items-center gap-3 bg-white rounded-lg shadow-sm px-4 py-2 mb-4">
+      {/* Compact navigation */}
+      <div className="flex items-center gap-1">
         <button
           onClick={() => onNavigate('back')}
           disabled={currentIndex <= 0}
-          className="p-2 text-gray-600 hover:text-gray-800 disabled:text-gray-300 disabled:cursor-not-allowed rounded"
-          title="Go back"
+          className="p-1 text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed rounded transition-colors"
+          title="Previous version (Ctrl+Z)"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         
-        <div className="flex-1 text-center">
-          <span className="text-sm text-gray-600">
-            {currentIndex + 1} / {dataHistory.length}
-          </span>
-        </div>
-        
         <button
           onClick={() => onNavigate('forward')}
           disabled={currentIndex >= dataHistory.length - 1}
-          className="p-2 text-gray-600 hover:text-gray-800 disabled:text-gray-300 disabled:cursor-not-allowed rounded"
-          title="Go forward"
+          className="p-1 text-gray-500 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed rounded transition-colors"
+          title="Next version (Ctrl+Y)"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         </button>
       </div>
+
+      <div className="h-4 w-px bg-gray-200" />
       
-      {/* Git-like visual representation */}
-      <div className="flex items-center gap-1 overflow-x-auto">
-        {dataHistory.map((_, index) => (
-          <React.Fragment key={index}>
+      {/* Minimalist timeline */}
+      <div className="flex-1 flex items-center gap-0 overflow-hidden">
+        <div className="flex items-center relative">
+          {/* Background line */}
+          <div className="absolute h-0.5 bg-gray-200" style={{
+            width: `${(dataHistory.length - 1) * 16}px`,
+            left: '4px'
+          }} />
+          
+          {/* Progress line */}
+          <div className="absolute h-0.5 bg-blue-400 transition-all duration-200" style={{
+            width: `${currentIndex * 16}px`,
+            left: '4px'
+          }} />
+          
+          {/* Dots */}
+          {dataHistory.map((_, index) => (
             <div
-              className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
-                index === currentIndex
-                  ? 'bg-blue-500 border-blue-500'
-                  : index < currentIndex
-                  ? 'bg-gray-400 border-gray-400'
-                  : 'bg-white border-gray-300'
-              }`}
-              title={`Version ${index + 1}${index === 0 ? ' (Initial)' : ''}`}
-            />
-            {index < dataHistory.length - 1 && (
-              <div 
-                className={`w-4 h-0.5 flex-shrink-0 ${
-                  index < currentIndex ? 'bg-gray-400' : 'bg-gray-200'
+              key={index}
+              className="relative z-10"
+              style={{ marginRight: index < dataHistory.length - 1 ? '12px' : '0' }}
+            >
+              <div
+                className={`w-2 h-2 rounded-full transition-all duration-200 cursor-pointer hover:scale-150 ${
+                  index === currentIndex
+                    ? 'bg-blue-500 ring-2 ring-blue-200 ring-offset-1'
+                    : index < currentIndex
+                    ? 'bg-blue-400'
+                    : 'bg-gray-300'
                 }`}
+                onClick={() => {
+                  if (index < currentIndex) {
+                    for (let i = 0; i < currentIndex - index; i++) {
+                      onNavigate('back');
+                    }
+                  } else if (index > currentIndex) {
+                    for (let i = 0; i < index - currentIndex; i++) {
+                      onNavigate('forward');
+                    }
+                  }
+                }}
+                title={`Version ${index + 1}${index === 0 ? ' (Initial)' : ''}${index === currentIndex ? ' (Current)' : ''}`}
               />
-            )}
-          </React.Fragment>
-        ))}
+            </div>
+          ))}
+        </div>
       </div>
       
-      <div className="mt-2 text-xs text-gray-500">
-        {currentIndex === 0 ? 'Initial version' : `${currentIndex} change${currentIndex === 1 ? '' : 's'} applied`}
+      {/* Version indicator */}
+      <div className="text-xs text-gray-500 whitespace-nowrap">
+        v{currentIndex + 1}
+        <span className="text-gray-400">/{dataHistory.length}</span>
       </div>
     </div>
   );

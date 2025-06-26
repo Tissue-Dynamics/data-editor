@@ -290,38 +290,54 @@ function App() {
   }, []);
 
   const handleStreamingEvent = useCallback((event: any) => {
-    const stepTypeMap = {
-      'analysis_start': 'analysis',
-      'tool_start': event.tool === 'web_search' ? 'search' : event.tool === 'bash' ? 'code' : 'validation',
-      'tool_complete': event.tool === 'web_search' ? 'search' : event.tool === 'bash' ? 'code' : 'validation'
+    console.log('Streaming event:', event);
+    
+    const getStepType = (event: any) => {
+      if (event.tool === 'web_search') return 'search';
+      if (event.tool === 'bash') return 'code';
+      if (event.tool === 'structured_output') return 'validation';
+      if (event.type.includes('analysis')) return 'analysis';
+      return 'validation';
     };
 
     if (event.type === 'analysis_start' || event.type === 'tool_start') {
       const stepId = addTaskStep({
-        type: stepTypeMap[event.type] || 'analysis',
+        type: getStepType(event),
         description: event.description,
         status: 'running',
         details: event.details
       });
       
-      // Store step ID for later completion
-      setTaskSteps(prev => prev.map(step => 
-        step.description === event.description 
-          ? { ...step, id: stepId }
-          : step
-      ));
+      // Store mapping of tool to step ID for completion
+      if (event.tool) {
+        (window as any)[`step_${event.tool}`] = stepId;
+      }
     } 
     else if (event.type === 'tool_complete' || event.type === 'analysis_complete') {
-      // Find and complete the corresponding step
-      setTaskSteps(prev => prev.map(step => 
-        step.description.includes(event.description.split(' ')[0]) && step.status === 'running'
+      // Use tool type to find the right step
+      const stepId = event.tool ? (window as any)[`step_${event.tool}`] : null;
+      
+      setTaskSteps(prev => prev.map(step => {
+        // Match by tool type or by description pattern
+        const shouldComplete = stepId ? step.id === stepId : 
+          (event.tool === 'web_search' && step.type === 'search' && step.status === 'running') ||
+          (event.tool === 'bash' && step.type === 'code' && step.status === 'running') ||
+          (event.tool === 'structured_output' && step.type === 'validation' && step.status === 'running') ||
+          (event.type === 'analysis_complete' && step.type === 'analysis' && step.status === 'running');
+          
+        return shouldComplete
           ? { ...step, status: 'completed', details: event.data ? JSON.stringify(event.data) : step.details }
-          : step
-      ));
+          : step;
+      }));
+      
+      // Clean up mapping
+      if (event.tool && stepId) {
+        delete (window as any)[`step_${event.tool}`];
+      }
     }
     else if (event.type === 'tool_error') {
       setTaskSteps(prev => prev.map(step => 
-        step.description.includes(event.description.split(' ')[0]) && step.status === 'running'
+        (event.tool && step.type === getStepType(event) && step.status === 'running')
           ? { ...step, status: 'error', details: event.details }
           : step
       ));
@@ -387,6 +403,14 @@ function App() {
               },
             });
             setIsTaskRunning(false);
+            
+            // Clear task steps after a delay if no pending validations
+            setTimeout(() => {
+              const pendingValidations = Array.from(validations.values()).filter(v => v.status === 'auto_updated' && !v.confirmed).length;
+              if (pendingValidations === 0) {
+                setTaskSteps([]);
+              }
+            }, 3000);
           } else if (statusResponse.status === 'failed') {
             setCurrentTask({
               ...newTask,
