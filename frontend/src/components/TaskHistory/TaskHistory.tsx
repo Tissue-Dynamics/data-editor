@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../services/api';
+import type { TaskEvent } from '../../types/tasks';
 
 interface TaskHistoryItem {
   id: string;
@@ -22,6 +23,7 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [taskEvents, setTaskEvents] = useState<Record<string, TaskEvent[]>>({});
 
   useEffect(() => {
     loadTasks();
@@ -42,8 +44,26 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
       );
       
       // If there are running tasks, set up polling
-      if (hasRunningTasks && !isInitialLoad) {
-        setTimeout(() => loadTasks(false), 5000); // Poll every 5 seconds
+      if (hasRunningTasks) {
+        // Load events for running tasks
+        const runningTasks = response.tasks.filter(t => 
+          t.status === 'pending' || t.status === 'processing'
+        );
+        
+        for (const task of runningTasks) {
+          try {
+            const taskResponse = await api.getTaskStatus(task.id);
+            if (taskResponse.events) {
+              setTaskEvents(prev => ({ ...prev, [task.id]: taskResponse.events! }));
+            }
+          } catch (error) {
+            console.error(`Failed to load events for task ${task.id}:`, error);
+          }
+        }
+        
+        if (!isInitialLoad) {
+          setTimeout(() => loadTasks(false), 5000); // Poll every 5 seconds
+        }
       }
     } catch (error) {
       console.error('Failed to load task history:', error);
@@ -155,6 +175,26 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
             
             {expandedTaskId === task.id && (
               <div className="mt-3 pt-3 border-t">
+                {/* Show events for running tasks */}
+                {(task.status === 'pending' || task.status === 'processing') && taskEvents[task.id] && (
+                  <div className="mb-3">
+                    <p className="text-sm font-medium text-gray-700 mb-2">Progress:</p>
+                    <div className="space-y-1">
+                      {taskEvents[task.id].map((event, idx) => (
+                        <div key={idx} className="text-xs text-gray-600 flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            event.status === 'running' ? 'bg-blue-500 animate-pulse' :
+                            event.status === 'completed' ? 'bg-green-500' :
+                            event.status === 'error' ? 'bg-red-500' :
+                            'bg-gray-400'
+                          }`} />
+                          <span>{event.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
                 {task.analysis && (
                   <div className="text-sm text-gray-700">
                     <p className="font-medium mb-1">Analysis:</p>

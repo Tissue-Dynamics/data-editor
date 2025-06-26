@@ -434,6 +434,13 @@ async function processTask(
 
     // Emit analysis start event with context
     TaskStreaming.emitAnalysisStart(taskId, `Processing request: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
+    
+    // Save initial event to database
+    await taskService.addTaskEvent(taskId, {
+      type: 'analysis',
+      description: `Processing request: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`,
+      status: 'running'
+    });
 
     // Update status to processing
     task.status = 'processing';
@@ -447,6 +454,13 @@ async function processTask(
     console.log(`[Task ${taskId}] Calling Claude...`);
     TaskStreaming.emitAnalysisStart(taskId, `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`);
     
+    // Save analysis event
+    await taskService.addTaskEvent(taskId, {
+      type: 'analysis',
+      description: `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`,
+      status: 'running'
+    });
+    
     let result;
     try {
       result = await claudeService.analyzeData(
@@ -457,8 +471,24 @@ async function processTask(
         taskId // Pass taskId for streaming
       );
       console.log(`[Task ${taskId}] Claude analysis completed!`);
+      
+      // Save completion event
+      await taskService.addTaskEvent(taskId, {
+        type: 'analysis',
+        description: 'Analysis completed successfully',
+        status: 'completed'
+      });
     } catch (claudeError) {
       console.error(`[Task ${taskId}] Claude analysis failed:`, claudeError);
+      
+      // Save error event
+      await taskService.addTaskEvent(taskId, {
+        type: 'analysis',
+        description: 'Analysis failed',
+        status: 'error',
+        details: claudeError instanceof Error ? claudeError.message : 'Unknown error'
+      });
+      
       throw claudeError;
     }
     console.log(`[Task ${taskId}] Method used: ${result.method}`);
@@ -538,6 +568,9 @@ app.get('/api/tasks/:taskId', async (c) => {
   // First check cache
   const cachedTask = taskCache.get(taskId);
   if (cachedTask) {
+    // Get current streaming events
+    const streamingEvents = TaskStreaming.getEvents(taskId);
+    
     return c.json({
       taskId: cachedTask.id,
       status: cachedTask.status,
@@ -545,6 +578,14 @@ app.get('/api/tasks/:taskId', async (c) => {
       error: cachedTask.error,
       createdAt: cachedTask.createdAt.toISOString(),
       completedAt: cachedTask.completedAt?.toISOString(),
+      events: streamingEvents.map(e => ({
+        type: e.type === 'tool_start' || e.type === 'tool_complete' ? 
+              (e.tool === 'web_search' ? 'search' : e.tool === 'bash' ? 'code' : 'validation') : 'analysis',
+        description: e.description,
+        status: e.type.includes('start') ? 'running' : e.type.includes('error') ? 'error' : 'completed',
+        details: e.details,
+        timestamp: new Date(e.timestamp).toISOString()
+      }))
     });
   }
   
@@ -556,6 +597,9 @@ app.get('/api/tasks/:taskId', async (c) => {
     return c.json({ error: 'Task not found' }, 404);
   }
   
+  // Parse stored events
+  const events = task.events ? JSON.parse(task.events) : [];
+  
   return c.json({
     taskId: task.id,
     status: task.status,
@@ -563,6 +607,7 @@ app.get('/api/tasks/:taskId', async (c) => {
     error: task.error_message,
     createdAt: new Date(task.created_at).toISOString(),
     completedAt: task.completed_at ? new Date(task.completed_at).toISOString() : undefined,
+    events
   });
 });
 

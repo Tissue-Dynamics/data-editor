@@ -1,6 +1,15 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import { generateId } from '../utils/id';
 
+export interface TaskEvent {
+  id: string;
+  type: 'search' | 'analysis' | 'code' | 'validation';
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  details?: string;
+  timestamp: string;
+}
+
 export interface Task {
   id: string;
   prompt: string;
@@ -11,6 +20,7 @@ export interface Task {
   method?: string;
   analysis?: string;
   error_message?: string;
+  events?: string; // JSON array of TaskEvent
   created_at: number;
   completed_at?: number;
   execution_time_ms?: number;
@@ -66,9 +76,30 @@ export class TaskService {
     return task;
   }
 
+  async addTaskEvent(
+    taskId: string,
+    event: Omit<TaskEvent, 'id' | 'timestamp'>
+  ): Promise<void> {
+    const task = await this.getTask(taskId);
+    if (!task) return;
+    
+    const events: TaskEvent[] = task.events ? JSON.parse(task.events) : [];
+    const newEvent: TaskEvent = {
+      ...event,
+      id: generateId(),
+      timestamp: new Date().toISOString()
+    };
+    
+    events.push(newEvent);
+    
+    await this.db.prepare(`
+      UPDATE tasks SET events = ? WHERE id = ?
+    `).bind(JSON.stringify(events), taskId).run();
+  }
+  
   async updateTask(
     taskId: string,
-    updates: Partial<Pick<Task, 'status' | 'analysis' | 'error_message' | 'method' | 'result'>>
+    updates: Partial<Pick<Task, 'status' | 'analysis' | 'error_message' | 'method' | 'result' | 'events'>>
   ): Promise<void> {
     const setClauses: string[] = [];
     const values: any[] = [];
@@ -96,6 +127,11 @@ export class TaskService {
     if (updates.result !== undefined) {
       setClauses.push('result = ?');
       values.push(updates.result);
+    }
+    
+    if (updates.events !== undefined) {
+      setClauses.push('events = ?');
+      values.push(updates.events);
     }
     
     // Handle completion
@@ -211,5 +247,25 @@ export class TaskService {
     `).bind(batchId).first();
     
     return result as any;
+  }
+  
+  async getStuckTasks(timeoutMs: number = 1800000): Promise<Task[]> { // 30 minutes default
+    const cutoffTime = Date.now() - timeoutMs;
+    
+    const result = await this.db.prepare(`
+      SELECT * FROM tasks
+      WHERE status IN ('pending', 'processing')
+      AND created_at < ?
+      ORDER BY created_at ASC
+    `).bind(cutoffTime).all();
+    
+    return (result.results || []) as Task[];
+  }
+  
+  async markTaskAsFailed(taskId: string, reason: string): Promise<void> {
+    await this.updateTask(taskId, {
+      status: 'failed',
+      error_message: reason
+    });
   }
 }

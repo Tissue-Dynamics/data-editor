@@ -58,6 +58,14 @@ export interface ClaudeAnalysisResult {
   }>;
 }
 
+export interface TaskEvent {
+  type: 'search' | 'analysis' | 'code' | 'validation';
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  details?: string;
+  timestamp: string;
+}
+
 export interface TaskResponse {
   taskId: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
@@ -66,4 +74,7 @@ export interface TaskResponse {
   error?: string;
   selectedRowsCount?: number;
   selectedColumnsCount?: number;
+  events?: TaskEvent[];
+  createdAt?: string;
+  completedAt?: string;
 }
