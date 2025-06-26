@@ -63,6 +63,28 @@ CREATE TABLE data_snapshots (
   UNIQUE(session_id, version)
 );
 
+-- Cell Validation States Table
+-- Tracks the user interaction status of each cell validation
+CREATE TABLE cell_validation_states (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  data_version INTEGER NOT NULL, -- Links to data_snapshots.version
+  cell_key TEXT NOT NULL, -- Format: "rowIndex-columnId"
+  validation_status TEXT NOT NULL CHECK (validation_status IN ('unchecked', 'auto_updated', 'confirmed', 'conflict')),
+  original_value TEXT,
+  validated_value TEXT,
+  confidence REAL DEFAULT 0.9,
+  source TEXT,
+  notes TEXT,
+  applied BOOLEAN DEFAULT FALSE,
+  confirmed BOOLEAN DEFAULT FALSE,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  UNIQUE(session_id, data_version, cell_key)
+);
+
 -- Validation Cache Table
 -- Caches validation results for identical data patterns
 CREATE TABLE validation_cache (
@@ -110,6 +132,11 @@ CREATE INDEX idx_tasks_session_id ON tasks(session_id);
 
 CREATE INDEX idx_data_snapshots_created_at ON data_snapshots(created_at);
 CREATE INDEX idx_data_snapshots_session ON data_snapshots(session_id);
+
+CREATE INDEX idx_cell_validation_session ON cell_validation_states(session_id);
+CREATE INDEX idx_cell_validation_version ON cell_validation_states(data_version);
+CREATE INDEX idx_cell_validation_key ON cell_validation_states(cell_key);
+CREATE INDEX idx_cell_validation_status ON cell_validation_states(validation_status);
 
 CREATE INDEX idx_validation_cache_pattern ON validation_cache(data_pattern_hash);
 CREATE INDEX idx_validation_cache_prompt ON validation_cache(prompt_hash);

@@ -38,6 +38,11 @@ export class ClaudeService {
       suggestedValue?: any;
       reason: string;
     }>;
+    rowDeletions?: Array<{
+      rowIndex: number;
+      reason: string;
+      confidence: 'high' | 'medium' | 'low';
+    }>;
     method: 'anthropic-api' | 'mock';
   }> {
     // Filter data based on selection
@@ -100,6 +105,11 @@ export class ClaudeService {
       suggestedValue?: any;
       reason: string;
     }>;
+    rowDeletions?: Array<{
+      rowIndex: number;
+      reason: string;
+      confidence: 'high' | 'medium' | 'low';
+    }>;
   }> {
     if (!this.anthropic) {
       throw new Error('Anthropic API key not configured');
@@ -148,6 +158,29 @@ export class ClaudeService {
               },
               required: ["rowIndex", "columnId", "status", "originalValue", "reason"]
             }
+          },
+          rowDeletions: {
+            type: "array",
+            description: "List of rows that should be deleted from the dataset",
+            items: {
+              type: "object",
+              properties: {
+                rowIndex: {
+                  type: "number",
+                  description: "Zero-based index of the row to delete"
+                },
+                reason: {
+                  type: "string",
+                  description: "Explanation of why this row should be deleted (duplicate, invalid, outlier, etc.)"
+                },
+                confidence: {
+                  type: "string",
+                  enum: ["high", "medium", "low"],
+                  description: "Confidence level in the deletion recommendation"
+                }
+              },
+              required: ["rowIndex", "reason", "confidence"]
+            }
           }
         },
         required: ["analysis"]
@@ -168,7 +201,7 @@ export class ClaudeService {
     // First call: Allow Claude to use research tools
     const firstResponse = await this.anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
+      max_tokens: 8192,
       temperature: 0.1,
       tools: [
         {
@@ -197,6 +230,7 @@ export class ClaudeService {
     });
     
     // Process tool uses and create tool results
+    const toolResultsContent = [];
     for (const content of firstResponse.content) {
       if (content.type === 'tool_use') {
         console.log(`[Task ${taskId}] Claude used tool: ${content.name}`);
@@ -210,14 +244,11 @@ export class ClaudeService {
               'Checking scientific databases and literature');
           }
           
-          // Add tool result message
-          messages.push({
-            role: 'user',
-            content: [{
-              type: 'tool_result',
-              tool_use_id: content.id,
-              content: 'Search completed successfully. Results integrated into analysis.'
-            }]
+          // Add tool result to batch
+          toolResultsContent.push({
+            type: 'tool_result',
+            tool_use_id: content.id,
+            content: 'Search completed successfully. Results integrated into analysis.'
           });
         }
         
@@ -240,17 +271,22 @@ export class ClaudeService {
               String(command).substring(0, 80) + (String(command).length > 80 ? '...' : ''));
           }
           
-          // Add tool result message  
-          messages.push({
-            role: 'user',
-            content: [{
-              type: 'tool_result',
-              tool_use_id: content.id,
-              content: 'Calculation completed successfully. Results integrated into analysis.'
-            }]
+          // Add tool result to batch
+          toolResultsContent.push({
+            type: 'tool_result',
+            tool_use_id: content.id,
+            content: 'Calculation completed successfully. Results integrated into analysis.'
           });
         }
       }
+    }
+
+    // If there were tools used, we need to provide tool results
+    if (toolResultsContent.length > 0) {
+      messages.push({
+        role: 'user',
+        content: toolResultsContent
+      });
     }
 
     // Complete tool events
@@ -264,11 +300,11 @@ export class ClaudeService {
     }
 
     // Only add the structured output request if tools were used
-    if (toolResults.length > 0 || firstResponse.content.some(c => c.type === 'tool_use')) {
+    if (toolResultsContent.length > 0) {
       // Need Claude's response to tool results first
       const toolResponseMessages = await this.anthropic.messages.create({
         model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 1000,
+        max_tokens: 8192,
         temperature: 0.1,
         messages,
       });
@@ -282,12 +318,12 @@ export class ClaudeService {
     // Now ask for structured output
     messages.push({
       role: 'user',
-      content: 'Based on your research above, please now provide your structured analysis using the data_analysis_result tool. Include any findings from your web searches or calculations in your validation results.'
+      content: 'Based on your research above, please now provide your COMPREHENSIVE structured analysis using the data_analysis_result tool. Include ALL findings from your web searches and calculations. Provide validations for every data point that has issues - do not limit the number of validations. The system can handle 50+ validations if needed.'
     });
 
     const response = await this.anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
+      max_tokens: 8192,
       temperature: 0.1,
       tools: [validationTool],
       tool_choice: { type: "tool", name: "data_analysis_result" },
@@ -307,21 +343,41 @@ export class ClaudeService {
             suggestedValue?: any;
             reason: string;
           }>;
+          rowDeletions?: Array<{
+            rowIndex: number;
+            reason: string;
+            confidence: 'high' | 'medium' | 'low';
+          }>;
         };
         
         if (taskId) {
           const validationCount = analysisResult.validations?.length || 0;
-          TaskStreaming.emitToolStart(taskId, 'structured_output', 
-            `Generating ${validationCount} validation${validationCount === 1 ? '' : 's'}`, 
-            'Formatting analysis results');
-          TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
-            validationCount: analysisResult.validations?.length || 0
+          const deletionCount = analysisResult.rowDeletions?.length || 0;
+          const totalActions = validationCount + deletionCount;
+          
+          let description = '';
+          if (validationCount > 0 && deletionCount > 0) {
+            description = `Generating ${validationCount} validation${validationCount === 1 ? '' : 's'} and ${deletionCount} row deletion${deletionCount === 1 ? '' : 's'}`;
+          } else if (validationCount > 0) {
+            description = `Generating ${validationCount} validation${validationCount === 1 ? '' : 's'}`;
+          } else if (deletionCount > 0) {
+            description = `Generating ${deletionCount} row deletion${deletionCount === 1 ? '' : 's'}`;
+          } else {
+            description = 'Generating analysis results';
+          }
+          
+          TaskStreaming.emitToolStart(taskId, 'structured_output', description, 'Formatting analysis results');
+          TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Analysis results generated', {
+            validationCount,
+            deletionCount,
+            totalActions
           });
         }
         
         return {
           analysis: analysisResult.analysis,
           validations: analysisResult.validations,
+          rowDeletions: analysisResult.rowDeletions,
         };
       }
     }
@@ -416,21 +472,50 @@ Data preview: ${JSON.stringify(data.slice(0, 2), null, 2)}`;
     selectedRows?: number[],
     selectedColumns?: string[]
   ): string {
+    const dataSize = JSON.stringify(data).length;
+    const dataToShow = dataSize > 50000 ? 
+      `${JSON.stringify(data.slice(0, Math.min(100, data.length)), null, 2)}
+      
+**Note: Showing first ${Math.min(100, data.length)} rows of ${data.length} total rows. Full dataset is ${data.length} rows.**` 
+      : JSON.stringify(data, null, 2);
+
     return `
 User Request: ${prompt}
 
 Data to analyze:
-${JSON.stringify(data, null, 2)}
+${dataToShow}
 
 ${selectedRows ? `Selected rows: ${selectedRows.join(', ')}` : 'All rows selected'}
 ${selectedColumns ? `Selected columns: ${selectedColumns.join(', ')}` : 'All columns selected'}
 
-Please analyze this scientific data:
-1. Use web search for compound validation
-2. Use bash for calculations if needed
-3. **IMPORTANT**: Always call 'data_analysis_result' tool at the end
+Please perform a COMPREHENSIVE analysis of this scientific data:
 
-Focus on filling missing values and validating existing data.`;
+**VALIDATION REQUIREMENTS:**
+1. **Examine EVERY row and column** - don't limit yourself to obvious issues
+2. Check for missing values, incorrect formats, invalid data, inconsistencies
+3. Validate scientific accuracy using web search when needed
+4. Use bash calculations to verify numerical relationships
+5. **IMPORTANT**: Always call 'data_analysis_result' tool at the end with ALL findings
+
+**COMPREHENSIVE VALIDATION SCOPE:**
+- Check every cell for data quality issues
+- Validate formats (emails, phone numbers, scientific notation, units)
+- Cross-reference scientific data (compounds, measurements, standards)
+- Identify outliers, duplicates, and inconsistencies
+- Suggest corrections for missing or invalid values
+- Don't just focus on the most obvious problems - check everything
+
+**ROW DELETION GUIDELINES:**
+Suggest deleting entire rows only when they are:
+- High confidence: Clear duplicates, test/placeholder data, completely invalid rows
+- Medium confidence: Significant outliers or mostly incomplete data  
+- Low confidence: Minor issues that might warrant removal
+
+**OUTPUT EXPECTATION:**
+Provide validations for as many data points as possible. If you find 50+ issues, include them all.
+The system can handle large numbers of validations - don't artificially limit your output.
+
+Focus on comprehensive data quality assessment and scientific integrity.`;
   }
 
   private parseValidations(

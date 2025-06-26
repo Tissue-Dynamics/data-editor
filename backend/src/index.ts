@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from './types';
 import { createClaudeService } from './services/claude';
 import { createClaudeBatchService } from './services/claude-batch';
@@ -358,7 +359,7 @@ app.get('/api/batches/:batchId', async (c) => {
 app.post('/api/tasks/execute', async (c) => {
   try {
     const body = await c.req.json();
-    const { prompt, selectedRows, selectedColumns, data } = body;
+    const { prompt, selectedRows, selectedColumns, data, batchMode } = body;
 
     if (!prompt?.trim()) {
       return c.json({ error: 'Prompt is required' }, 400);
@@ -392,7 +393,7 @@ app.post('/api/tasks/execute', async (c) => {
     taskCache.set(taskId, task);
 
     // Start background processing
-    c.executionCtx.waitUntil(processTask(taskId, prompt, data, selectedRows, selectedColumns, c.env, sessionId));
+    c.executionCtx.waitUntil(processTask(taskId, prompt, data, selectedRows, selectedColumns, c.env, sessionId, batchMode));
 
     return c.json({
       taskId,
@@ -418,7 +419,8 @@ async function processTask(
   selectedRows?: number[],
   selectedColumns?: string[],
   env?: Env,
-  sessionId?: string
+  sessionId?: string,
+  batchMode?: boolean
 ) {
   const task = taskCache.get(taskId);
   if (!task) return;
@@ -447,50 +449,89 @@ async function processTask(
     taskCache.set(taskId, task);
     await taskService.updateTask(taskId, { status: 'processing' });
 
-    // Create Claude service
-    const claudeService = createClaudeService(env || {} as Env);
-
-    // Analyze data with Claude
-    console.log(`[Task ${taskId}] Calling Claude...`);
-    TaskStreaming.emitAnalysisStart(taskId, `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`);
+    // Create Claude service (choose based on batch mode)
+    let result;
     
-    // Save analysis event
+    if (batchMode) {
+      console.log(`[Task ${taskId}] Using cost-saving mode (Claude Haiku)...`);
+      TaskStreaming.emitAnalysisStart(taskId, `Analyzing ${data?.length || 0} rows in cost-saving mode`);
+      
+      // Save analysis event
+      await taskService.addTaskEvent(taskId, {
+        type: 'analysis',
+        description: `Analyzing ${data?.length || 0} rows in cost-saving mode (Claude Haiku)`,
+        status: 'running'
+      });
+      
+      try {
+        // Use simpler, cheaper model for batch mode
+        result = await analyzeBatchMode(
+          prompt,
+          data || [],
+          selectedRows,
+          selectedColumns,
+          taskId,
+          env || {} as Env
+        );
+      } catch (batchError) {
+        console.error(`[Task ${taskId}] Batch analysis failed:`, batchError);
+        
+        // Save error event
+        await taskService.addTaskEvent(taskId, {
+          type: 'analysis',
+          description: 'Cost-saving analysis failed',
+          status: 'error',
+          details: batchError instanceof Error ? batchError.message : 'Unknown error'
+        });
+        
+        throw batchError;
+      }
+    } else {
+      // Standard mode with full Claude Sonnet and tools
+      const claudeService = createClaudeService(env || {} as Env);
+
+      console.log(`[Task ${taskId}] Using standard mode (Claude Sonnet with tools)...`);
+      TaskStreaming.emitAnalysisStart(taskId, `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`);
+      
+      // Save analysis event
+      await taskService.addTaskEvent(taskId, {
+        type: 'analysis',
+        description: `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`,
+        status: 'running'
+      });
+      
+      try {
+        result = await claudeService.analyzeData(
+          prompt,
+          data || [],
+          selectedRows,
+          selectedColumns,
+          taskId // Pass taskId for streaming
+        );
+      } catch (claudeError) {
+        console.error(`[Task ${taskId}] Claude analysis failed:`, claudeError);
+        
+        // Save error event
+        await taskService.addTaskEvent(taskId, {
+          type: 'analysis',
+          description: 'Analysis failed',
+          status: 'error',
+          details: claudeError instanceof Error ? claudeError.message : 'Unknown error'
+        });
+        
+        throw claudeError;
+      }
+    }
+    
+    console.log(`[Task ${taskId}] Claude analysis completed!`);
+    
+    // Save completion event
     await taskService.addTaskEvent(taskId, {
       type: 'analysis',
-      description: `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`,
-      status: 'running'
+      description: 'Analysis completed successfully',
+      status: 'completed'
     });
     
-    let result;
-    try {
-      result = await claudeService.analyzeData(
-        prompt,
-        data || [],
-        selectedRows,
-        selectedColumns,
-        taskId // Pass taskId for streaming
-      );
-      console.log(`[Task ${taskId}] Claude analysis completed!`);
-      
-      // Save completion event
-      await taskService.addTaskEvent(taskId, {
-        type: 'analysis',
-        description: 'Analysis completed successfully',
-        status: 'completed'
-      });
-    } catch (claudeError) {
-      console.error(`[Task ${taskId}] Claude analysis failed:`, claudeError);
-      
-      // Save error event
-      await taskService.addTaskEvent(taskId, {
-        type: 'analysis',
-        description: 'Analysis failed',
-        status: 'error',
-        details: claudeError instanceof Error ? claudeError.message : 'Unknown error'
-      });
-      
-      throw claudeError;
-    }
     console.log(`[Task ${taskId}] Method used: ${result.method}`);
     console.log(`[Task ${taskId}] Analysis preview: ${result.analysis.substring(0, 200)}...`);
     
@@ -611,5 +652,160 @@ app.get('/api/tasks/:taskId', async (c) => {
     events
   });
 });
+
+// Cost-saving batch mode analysis using Claude Haiku
+async function analyzeBatchMode(
+  prompt: string,
+  data: Record<string, any>[],
+  selectedRows?: number[],
+  selectedColumns?: string[],
+  taskId?: string,
+  env?: Env
+): Promise<{
+  analysis: string;
+  validations?: Array<{
+    rowIndex: number;
+    columnId: string;
+    status: 'valid' | 'warning' | 'error' | 'conflict';
+    originalValue: any;
+    suggestedValue?: any;
+    reason: string;
+  }>;
+  rowDeletions?: Array<{
+    rowIndex: number;
+    reason: string;
+    confidence: 'high' | 'medium' | 'low';
+  }>;
+  method: 'haiku-batch';
+}> {
+  if (!env?.ANTHROPIC_API_KEY) {
+    throw new Error('Anthropic API key not configured');
+  }
+
+  const anthropic = new Anthropic({
+    apiKey: env.ANTHROPIC_API_KEY,
+  });
+
+  // Filter data based on selection
+  const selectedData = selectedRows 
+    ? data.filter((_, index) => selectedRows.includes(index))
+    : data;
+
+  const relevantData = selectedColumns && selectedColumns.length > 0
+    ? selectedData.map(row => {
+        const filteredRow: Record<string, any> = {};
+        selectedColumns.forEach(col => {
+          filteredRow[col] = row[col];
+        });
+        return filteredRow;
+      })
+    : selectedData;
+
+  // Emit batch processing event
+  if (taskId) {
+    TaskStreaming.emitToolStart(taskId, 'structured_output', 'Running cost-saving batch analysis', 
+      'Using Claude Haiku for faster, cheaper processing');
+  }
+
+  // Simpler prompt for batch mode - no tools, direct validation
+  const userMessage = `
+User Request: ${prompt}
+
+Data to analyze:
+${JSON.stringify(relevantData, null, 2)}
+
+${selectedRows ? `Selected rows: ${selectedRows.join(', ')}` : 'All rows selected'}
+${selectedColumns ? `Selected columns: ${selectedColumns.join(', ')}` : 'All columns selected'}
+
+Please provide a FAST validation analysis of this data. Focus on:
+1. Data quality issues (missing values, wrong formats, inconsistencies)
+2. Scientific accuracy where obvious
+3. Duplicate detection
+4. Basic outlier identification
+
+Provide your response in this JSON format:
+{
+  "analysis": "Brief summary of findings",
+  "validations": [
+    {
+      "rowIndex": 0,
+      "columnId": "column_name",
+      "status": "error|warning|valid|conflict",
+      "originalValue": "current_value",
+      "suggestedValue": "corrected_value_if_applicable",
+      "reason": "explanation"
+    }
+  ],
+  "rowDeletions": [
+    {
+      "rowIndex": 0,
+      "reason": "why this row should be deleted",
+      "confidence": "high|medium|low"
+    }
+  ]
+}
+`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-3-haiku-20240307', // Cheaper, faster model
+      max_tokens: 8192,
+      temperature: 0.1,
+      messages: [
+        {
+          role: 'user',
+          content: userMessage,
+        },
+      ],
+    });
+
+    // Parse JSON response
+    const content = response.content[0];
+    if (content.type === 'text') {
+      // Extract JSON from response
+      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        
+        if (taskId) {
+          const validationCount = parsed.validations?.length || 0;
+          const deletionCount = parsed.rowDeletions?.length || 0;
+          
+          TaskStreaming.emitToolComplete(taskId, 'structured_output', 
+            `Generated ${validationCount} validations and ${deletionCount} deletion suggestions`, {
+            validationCount,
+            deletionCount,
+            mode: 'cost-saving'
+          });
+        }
+        
+        return {
+          analysis: parsed.analysis || 'Batch analysis completed',
+          validations: parsed.validations,
+          rowDeletions: parsed.rowDeletions,
+          method: 'haiku-batch'
+        };
+      }
+    }
+
+    // Fallback if JSON parsing fails
+    const textContent = content.type === 'text' ? content.text : 'Analysis completed';
+    
+    if (taskId) {
+      TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Analysis completed (text format)', {
+        mode: 'cost-saving'
+      });
+    }
+    
+    return {
+      analysis: textContent,
+      method: 'haiku-batch'
+    };
+
+  } catch (error) {
+    console.error('Batch mode analysis failed:', error);
+    throw new Error(`Batch analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
 
 export default app;
