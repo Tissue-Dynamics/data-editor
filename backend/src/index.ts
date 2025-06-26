@@ -221,18 +221,15 @@ app.post('/api/tasks/batch', async (c) => {
     }
     
     const taskService = new TaskService(c.env.DB);
-    const batchService = createClaudeBatchService(c.env);
     
     // Create tasks in database
-    const taskIds: string[] = [];
-    const batchRequests = [];
+    const createdTasks = [];
     
     for (const task of tasks) {
-      const taskId = crypto.randomUUID();
       const dataHash = createHash(JSON.stringify(task.data));
       
       // Create task in database
-      await taskService.createTask({
+      const createdTask = await taskService.createTask({
         prompt: task.prompt,
         data_hash: dataHash,
         selected_rows: task.selectedRows,
@@ -240,32 +237,50 @@ app.post('/api/tasks/batch', async (c) => {
         session_id: sessionId
       });
       
-      taskIds.push(taskId);
+      createdTasks.push(createdTask);
       
-      // Prepare batch request
-      const batchRequest = await batchService.prepareBatchRequests([{
-        id: taskId,
+      // Also cache for quick access
+      const cachedTask = {
+        id: createdTask.id,
+        status: 'pending' as const,
         prompt: task.prompt,
-        data: task.data,
-        selectedRows: task.selectedRows,
-        selectedColumns: task.selectedColumns
-      }]);
-      
-      batchRequests.push(...batchRequest);
+        createdAt: new Date(),
+      };
+      taskCache.set(createdTask.id, cachedTask);
     }
     
-    // Create batch in Claude API
-    const claudeBatchId = await batchService.createBatch(batchRequests);
-    
     // Link tasks to batch
-    const batchId = await taskService.createBatch(taskIds);
+    const batchId = await taskService.createBatch(createdTasks.map(t => t.id));
+    
+    // Process tasks with delay to avoid rate limits
+    let delay = 0;
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      const createdTask = createdTasks[i];
+      
+      // Process each task with a 2 second delay between them
+      setTimeout(() => {
+        c.executionCtx.waitUntil(
+          processTask(
+            createdTask.id,
+            task.prompt,
+            task.data,
+            task.selectedRows,
+            task.selectedColumns,
+            c.env,
+            sessionId
+          )
+        );
+      }, delay);
+      
+      delay += 2000; // 2 seconds between tasks
+    }
     
     return c.json({
       batchId,
-      claudeBatchId,
-      taskIds,
+      taskIds: createdTasks.map(t => t.id),
       taskCount: tasks.length,
-      message: 'Batch created successfully. Poll /api/batches/{batchId} for status.'
+      message: 'Batch created successfully. Tasks will be processed with delays to avoid rate limits.'
     });
   } catch (error) {
     console.error('Failed to create batch:', error);
@@ -281,12 +296,19 @@ app.get('/api/batches/:batchId', async (c) => {
     
     // Get batch status from database
     const batchStatus = await taskService.getBatchStatus(batchId);
+    const tasks = await taskService.getTasksByBatchId(batchId);
+    
+    // Map tasks to include parsed results
+    const tasksWithResults = tasks.map(task => ({
+      ...task,
+      result: task.result ? JSON.parse(task.result) : null
+    }));
     
     return c.json({
       batchId,
       status: batchStatus.pending > 0 || batchStatus.processing > 0 ? 'processing' : 'completed',
       counts: batchStatus,
-      tasks: await taskService.getTasksByBatchId(batchId)
+      tasks: tasksWithResults
     });
   } catch (error) {
     console.error('Failed to get batch status:', error);

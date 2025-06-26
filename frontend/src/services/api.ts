@@ -14,7 +14,19 @@ async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const error = await response.text();
     console.error(`API Error: ${response.status} ${response.statusText}`, error);
-    throw new ApiError(response.status, error || response.statusText);
+    
+    // Try to parse as JSON for structured errors
+    let errorMessage = error || response.statusText;
+    try {
+      const errorObj = JSON.parse(error);
+      if (errorObj.error) {
+        errorMessage = typeof errorObj.error === 'string' ? errorObj.error : JSON.stringify(errorObj.error);
+      }
+    } catch (e) {
+      // Keep original error text
+    }
+    
+    throw new ApiError(response.status, errorMessage);
   }
   return response.json();
 }
@@ -120,6 +132,52 @@ export const api = {
     }>;
   }> {
     const response = await fetch(`${API_URL}/api/sessions/${sessionId}/tasks`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return handleResponse(response);
+  },
+  
+  async createBatch(params: {
+    tasks: Array<{
+      prompt: string;
+      selectedRows?: number[];
+      selectedColumns?: string[];
+      data: any[];
+    }>;
+    sessionId?: string;
+  }): Promise<{
+    batchId: string;
+    claudeBatchId: string;
+    taskIds: string[];
+    taskCount: number;
+    message: string;
+  }> {
+    const response = await fetch(`${API_URL}/api/tasks/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+    return handleResponse(response);
+  },
+  
+  async getBatchStatus(batchId: string): Promise<{
+    batchId: string;
+    status: string;
+    counts: {
+      total: number;
+      pending: number;
+      processing: number;
+      completed: number;
+      failed: number;
+    };
+    tasks: any[];
+  }> {
+    const response = await fetch(`${API_URL}/api/batches/${batchId}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

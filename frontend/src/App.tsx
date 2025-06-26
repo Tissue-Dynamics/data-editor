@@ -11,7 +11,7 @@ import { TaskHistory } from './components/TaskHistory/TaskHistory';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
 import type { Task, ClaudeAnalysisResult } from './types/tasks';
-import { api } from './services/api';
+import { api, ApiError } from './services/api';
 
 interface TaskStep {
   id: string;
@@ -534,8 +534,128 @@ function App() {
       setTimeout(pollForCompletion, 1000);
       
     } catch (error) {
-      setTaskError(error instanceof Error ? error.message : 'Failed to execute task');
-      setIsTaskRunning(false);
+      // Check if it's a rate limit error
+      const isRateLimit = (error instanceof ApiError && error.status === 429) || 
+                         (error instanceof Error && error.message.includes('429'));
+      
+      if (isRateLimit) {
+        console.log('Rate limit hit, falling back to batch processing...');
+        
+        try {
+          // Create a batch with single task
+          const batchResponse = await api.createBatch({
+            tasks: [{
+              prompt,
+              selectedRows: selection.rows,
+              selectedColumns: selection.columns,
+              data: data.filter((_, index) => selection.rows.includes(index)),
+            }],
+            sessionId: currentSession?.id,
+          });
+          
+          // Show batch processing UI
+          setCurrentTask({
+            id: batchResponse.taskIds[0],
+            prompt,
+            selection: {
+              rows: selection.rows,
+              columns: selection.columns,
+            },
+            status: 'running',
+            createdAt: new Date(),
+          });
+          
+          // Add batch processing step
+          const batchStepId = addTaskStep({
+            type: 'analysis',
+            description: 'Processing via Message Batches API (may take a few minutes)',
+            status: 'running',
+            details: `Batch ID: ${batchResponse.batchId}`
+          });
+          
+          // Poll batch status
+          let pollCount = 0;
+          const pollBatch = async () => {
+            try {
+              const batchStatus = await api.getBatchStatus(batchResponse.batchId);
+              pollCount++;
+              
+              // Update progress details
+              updateTaskStep(batchStepId, {
+                details: `Batch ID: ${batchResponse.batchId} | Status: ${batchStatus.counts.completed}/${batchStatus.counts.total} completed | Poll #${pollCount}`
+              });
+              
+              if (batchStatus.status === 'completed') {
+                // Get the completed task
+                const completedTask = batchStatus.tasks.find(t => t.status === 'completed');
+                if (completedTask && completedTask.result) {
+                  console.log('Batch task completed, parsing results:', completedTask.result);
+                  
+                  // Ensure we have the validations
+                  if (completedTask.result.validations && completedTask.result.validations.length > 0) {
+                    console.log(`Found ${completedTask.result.validations.length} validations in batch result`);
+                    parseClaudeValidations(completedTask.result);
+                  } else {
+                    console.warn('No validations found in batch result');
+                  }
+                  
+                  setCurrentTask(prev => prev ? {
+                    ...prev,
+                    status: 'completed',
+                    completedAt: new Date(),
+                    result: {
+                      success: true,
+                      message: 'Batch processing completed',
+                    },
+                  } : null);
+                  
+                  // Update task step to completed
+                  updateTaskStep(batchStepId, {
+                    status: 'completed',
+                    details: `Batch completed successfully after ${pollCount} polls`
+                  });
+                } else {
+                  // Task failed
+                  const failedTask = batchStatus.tasks.find(t => t.status === 'failed');
+                  setTaskError(failedTask?.error_message || 'Batch task failed');
+                  
+                  updateTaskStep(batchStepId, {
+                    status: 'error',
+                    details: failedTask?.error_message || 'Batch task failed'
+                  });
+                }
+                
+                setIsTaskRunning(false);
+                setTaskHistoryRefreshKey(prev => prev + 1);
+              } else {
+                // Continue polling - show progress
+                console.log(`Batch status: ${batchStatus.counts.completed}/${batchStatus.counts.total} tasks completed`);
+                setTimeout(pollBatch, 5000); // Check every 5 seconds
+              }
+            } catch (pollError) {
+              console.error('Batch polling error:', pollError);
+              setTaskError('Failed to check batch status');
+              setIsTaskRunning(false);
+              
+              updateTaskStep(batchStepId, {
+                status: 'error',
+                details: 'Failed to poll batch status'
+              });
+            }
+          };
+          
+          // Start polling after 2 seconds
+          setTimeout(pollBatch, 2000);
+          
+        } catch (batchError) {
+          console.error('Batch creation error:', batchError);
+          setTaskError('Failed to create batch task');
+          setIsTaskRunning(false);
+        }
+      } else {
+        setTaskError(error instanceof Error ? error.message : 'Failed to execute task');
+        setIsTaskRunning(false);
+      }
     }
   };
 
