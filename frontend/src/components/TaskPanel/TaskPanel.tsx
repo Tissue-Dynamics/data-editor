@@ -92,7 +92,7 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow p-4 space-y-4">
+    <div className="bg-white rounded-lg shadow p-4 space-y-3 h-full max-h-[600px] overflow-y-auto">
       <div className="flex items-center gap-2">
         <Sparkles className="w-5 h-5 text-purple-600" />
         <h3 className="text-lg font-semibold">AI Task Assistant</h3>
@@ -111,7 +111,7 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
         </div>
       )}
 
-      <div className="flex gap-2 mb-3">
+      <div className="flex flex-wrap gap-2">
         {taskTypes.map(({ type, label, icon: Icon, activeClass }) => (
           <button
             key={type}
@@ -129,7 +129,7 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
         {selectedType && !autoDetect && (
           <button
             onClick={clearTypeSelection}
-            className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
           >
             Auto-detect
           </button>
@@ -142,8 +142,8 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
           onChange={(e) => handlePromptChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Describe what you want to do with the selected data..."
-          className="w-full p-3 pr-12 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
-          rows={3}
+          className="w-full p-3 pr-12 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+          rows={2}
           disabled={!hasSelection || isProcessing}
         />
         <button

@@ -68,22 +68,22 @@ export const TaskExamples: React.FC<TaskExamplesProps> = ({
   return (
     <div className="space-y-2">
       <div className="text-xs text-gray-500 uppercase tracking-wide">Example Tasks</div>
-      <div className="grid grid-cols-1 gap-2">
-        {availableExamples.map((example, index) => {
+      <div className="space-y-1">
+        {availableExamples.slice(0, 3).map((example, index) => {
           const Icon = iconMap[example.icon as keyof typeof iconMap] || Lightbulb;
           
           return (
             <button
               key={index}
               onClick={() => onExampleClick(example)}
-              className="flex items-center gap-3 p-3 text-left rounded-md border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors group"
+              className="flex items-center gap-2 p-2 w-full text-left rounded-md border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors group"
             >
-              <Icon className="w-4 h-4 text-gray-400 group-hover:text-purple-600" />
-              <div className="flex-1">
-                <div className="text-sm font-medium text-gray-700 group-hover:text-purple-700">
+              <Icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-purple-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-gray-700 group-hover:text-purple-700 truncate">
                   {example.label}
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 truncate">
                   {example.prompt}
                 </div>
               </div>

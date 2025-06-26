@@ -66,7 +66,7 @@ function App() {
               </div>
             </div>
             
-            <div className="lg:col-span-1">
+            <div className="lg:col-span-1 lg:sticky lg:top-4 h-fit">
               <TaskPanel 
                 selection={selection}
                 onExecuteTask={handleExecuteTask}
