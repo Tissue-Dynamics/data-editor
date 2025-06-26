@@ -11,9 +11,11 @@ This is a web-based data analysis application that integrates Claude's AI capabi
 ### Frontend (Implemented)
 - ✅ React + TypeScript with Vite
 - ✅ TanStack Table for data grid with row/column selection
-- ✅ Tailwind CSS for styling
+- ✅ Tailwind CSS v3 for styling
 - ✅ CSV and JSON file upload with Papaparse
 - ✅ Visual validation indicators component (ready for integration)
+- ✅ TypeScript type checking and ESLint configured
+- ✅ Pre-validation on dev/build commands
 - ⏳ Real-time WebSocket connections for streaming results
 
 ### Backend (Planned)
@@ -53,15 +55,30 @@ data-editor/
 # Install dependencies
 npm install
 
-# Run development server
+# Run development server (with validation)
 npm run dev
 
-# Build for production
+# Run development server (skip validation for faster startup)
+npm run dev:only
+
+# Build for production (with validation)
 npm run build
+
+# Build for production (skip validation)
+npm run build:only
+
+# Run validation only (type-check + lint)
+npm run validate
 
 # Preview production build
 npm run preview
 ```
+
+### Code Quality
+- TypeScript type checking runs automatically before dev/build
+- ESLint runs automatically before dev/build
+- Use `npm run dev:only` or `npm run build:only` to skip validation
+- All imports of types must use `import type` syntax
 
 ### Backend (not yet initialized)
 ```bash
@@ -82,10 +99,17 @@ Test data files are available in the `test-data/` directory:
 
 ## Implementation Priority
 
-1. **Phase 1 - Core Data Table**: Implement file upload, data display with TanStack Table, row/column selection
+1. **Phase 1 - Core Data Table**: ✅ COMPLETED - File upload, data display with TanStack Table, row/column selection
 2. **Phase 2 - Claude Integration**: Add single-row validation with Claude Code SDK
 3. **Phase 3 - Parallel Processing**: Implement worker spawning for bulk validation
 4. **Phase 4 - Persistence**: Add validation state tracking with visual indicators
+
+## Zed Editor Tasks
+
+Three simple tasks are configured in Zed:
+- **Frontend Dev**: Runs validation then starts dev server
+- **Frontend Build**: Runs validation then builds for production  
+- **Frontend Dev (Fast)**: Skips validation for quick iterations
 
 ## Important Technical Decisions
 
