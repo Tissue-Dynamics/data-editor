@@ -170,7 +170,7 @@ export class ClaudeService {
 
     // First call: Allow Claude to use research tools
     const firstResponse = await this.anthropic.messages.create({
-      model: 'claude-4-sonnet-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 4000,
       temperature: 0.1,
       tools: [
@@ -256,7 +256,7 @@ export class ClaudeService {
     if (toolResults.length > 0 || firstResponse.content.some(c => c.type === 'tool_use')) {
       // Need Claude's response to tool results first
       const toolResponseMessages = await this.anthropic.messages.create({
-        model: 'claude-4-sonnet-20250514',
+        model: 'claude-3-5-sonnet-20241022',
         max_tokens: 1000,
         temperature: 0.1,
         messages,
@@ -275,7 +275,7 @@ export class ClaudeService {
     });
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-4-sonnet-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 4000,
       temperature: 0.1,
       tools: [validationTool],
@@ -412,15 +412,12 @@ ${JSON.stringify(data, null, 2)}
 ${selectedRows ? `Selected rows: ${selectedRows.join(', ')}` : 'All rows selected'}
 ${selectedColumns ? `Selected columns: ${selectedColumns.join(', ')}` : 'All columns selected'}
 
-IMPORTANT: This appears to be scientific/pharmaceutical data. Please:
-1. Use web search to verify compound names, molecular weights, IC50 values, and other scientific data
-2. Look up missing values in scientific databases like PubChem, ChEMBL, or literature
-3. Use bash calculations if needed for unit conversions or molecular property calculations
-4. **CRITICALLY IMPORTANT**: You MUST end your analysis by calling the 'data_analysis_result' tool with your structured findings
+Please analyze this scientific data:
+1. Use web search for compound validation
+2. Use bash for calculations if needed
+3. **IMPORTANT**: Always call 'data_analysis_result' tool at the end
 
-After using any web search or bash tools, you MUST call the data_analysis_result tool to provide your structured output. This is required - do not end the conversation without calling this tool.
-
-Please thoroughly validate this data using web search and provide specific suggestions for any missing or incorrect values. Focus on scientific accuracy and cite sources when possible.`;
+Focus on filling missing values and validating existing data.`;
   }
 
   private parseValidations(
