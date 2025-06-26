@@ -3,6 +3,8 @@ import { FileUploader } from './components/Upload/FileUploader';
 import { DataTable } from './components/DataTable/DataTable';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { TaskProgress } from './components/TaskProgress/TaskProgress';
+import { VersionHistory } from './components/VersionHistory/VersionHistory';
+import { ValidationLegend } from './components/ValidationLegend/ValidationLegend';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
 import type { Task, ClaudeAnalysisResult } from './types/tasks';
@@ -19,6 +21,9 @@ interface TaskStep {
 
 function App() {
   const [data, setData] = useState<DataRow[]>([]);
+  const [originalData, setOriginalData] = useState<DataRow[]>([]); // Keep original for history
+  const [dataHistory, setDataHistory] = useState<DataRow[][]>([]); // Version history
+  const [historyIndex, setHistoryIndex] = useState(-1); // Current position in history
   const [filename, setFilename] = useState<string>('');
   const [selection, setSelection] = useState<Selection>({
     rows: [],
@@ -33,6 +38,9 @@ function App() {
 
   const handleDataLoad = (loadedData: DataRow[], fileName: string) => {
     setData(loadedData);
+    setOriginalData(loadedData); // Keep original
+    setDataHistory([loadedData]); // Initialize history
+    setHistoryIndex(0);
     setFilename(fileName);
     // Clear previous validations when new data is loaded
     setValidations(new Map());
@@ -40,6 +48,112 @@ function App() {
     setTaskError(null);
     setTaskSteps([]);
   };
+
+  const saveToHistory = useCallback((newData: DataRow[]) => {
+    setDataHistory(prev => {
+      const newHistory = prev.slice(0, historyIndex + 1); // Remove future history
+      newHistory.push(newData);
+      return newHistory;
+    });
+    setHistoryIndex(prev => prev + 1);
+  }, [historyIndex]);
+
+  const navigateHistory = useCallback((direction: 'back' | 'forward') => {
+    if (direction === 'back' && historyIndex > 0) {
+      setHistoryIndex(prev => prev - 1);
+      setData(dataHistory[historyIndex - 1]);
+    } else if (direction === 'forward' && historyIndex < dataHistory.length - 1) {
+      setHistoryIndex(prev => prev + 1);
+      setData(dataHistory[historyIndex + 1]);
+    }
+  }, [historyIndex, dataHistory]);
+
+  const confirmValidation = useCallback((rowIndex: number, columnId: string) => {
+    const cellKey = `${rowIndex}-${columnId}`;
+    setValidations(prev => {
+      const newValidations = new Map(prev);
+      const existing = newValidations.get(cellKey);
+      if (existing) {
+        newValidations.set(cellKey, {
+          ...existing,
+          status: 'confirmed',
+          confirmed: true,
+          timestamp: new Date(),
+        });
+        console.log(`Confirmed validation for ${cellKey}`);
+      }
+      return newValidations;
+    });
+  }, []);
+
+  const confirmAllValidations = useCallback(() => {
+    setValidations(prev => {
+      const newValidations = new Map(prev);
+      let confirmedCount = 0;
+      
+      for (const [cellKey, validation] of newValidations) {
+        if (validation.status === 'auto_updated') {
+          newValidations.set(cellKey, {
+            ...validation,
+            status: 'confirmed',
+            confirmed: true,
+            timestamp: new Date(),
+          });
+          confirmedCount++;
+        }
+      }
+      
+      console.log(`Confirmed ${confirmedCount} auto-updated validations`);
+      return newValidations;
+    });
+  }, []);
+
+  const dismissAllValidations = useCallback(() => {
+    setValidations(prev => {
+      const newValidations = new Map();
+      let dismissedCount = 0;
+      
+      for (const [cellKey, validation] of prev) {
+        if (validation.status !== 'auto_updated' && validation.status !== 'conflict') {
+          newValidations.set(cellKey, validation);
+        } else {
+          dismissedCount++;
+        }
+      }
+      
+      console.log(`Dismissed ${dismissedCount} validations`);
+      return newValidations;
+    });
+  }, []);
+
+  const applyValidation = useCallback((validation: ClaudeAnalysisResult['validations'][0]) => {
+    if (!validation.suggestedValue) return;
+
+    const newData = [...data];
+    newData[validation.rowIndex] = {
+      ...newData[validation.rowIndex],
+      [validation.columnId]: validation.suggestedValue
+    };
+
+    setData(newData);
+    saveToHistory(newData);
+
+    // Update validation state to mark as applied
+    const cellKey = `${validation.rowIndex}-${validation.columnId}`;
+    setValidations(prev => {
+      const newValidations = new Map(prev);
+      const existing = newValidations.get(cellKey);
+      if (existing) {
+        newValidations.set(cellKey, {
+          ...existing,
+          status: 'auto_updated',
+          applied: true,
+          timestamp: new Date(),
+        });
+      }
+      return newValidations;
+    });
+  }, [data, saveToHistory]);
 
   const handleSelectionChange = useCallback((newSelection: Selection) => {
     setSelection(newSelection);
@@ -55,20 +169,55 @@ function App() {
 
     console.log(`Found ${claudeResult.validations.length} validations from Claude`);
     const newValidations = new Map(validations);
+    const newData = [...data];
+    let hasChanges = false;
     
     claudeResult.validations.forEach((validation, index) => {
       const cellKey = `${validation.rowIndex}-${validation.columnId}`;
       console.log(`Processing validation ${index + 1}: ${cellKey} = ${validation.status}`);
       
+      // Map Claude statuses to our new system
+      let mappedStatus: ValidationState['status'];
+      switch (validation.status) {
+        case 'valid':
+          mappedStatus = validation.suggestedValue !== undefined ? 'auto_updated' : 'unchecked';
+          break;
+        case 'warning':
+          mappedStatus = validation.suggestedValue !== undefined ? 'auto_updated' : 'unchecked';
+          break;
+        case 'error':
+          mappedStatus = 'conflict';
+          break;
+        case 'conflict':
+          mappedStatus = 'conflict';
+          break;
+        default:
+          mappedStatus = 'unchecked';
+      }
+      
       const validationState: ValidationState = {
         cellKey,
-        status: validation.status === 'valid' ? 'validated' : validation.status === 'warning' ? 'warning' : 'error',
+        status: mappedStatus,
         originalValue: validation.originalValue,
         validatedValue: validation.suggestedValue,
-        confidence: 0.9, // Default confidence
+        confidence: 0.9,
         source: 'Claude AI',
         notes: validation.reason,
+        timestamp: new Date(),
+        applied: false,
+        confirmed: false,
       };
+      
+      // Auto-apply suggestions (making them orange)
+      if (validation.suggestedValue !== undefined && validation.suggestedValue !== validation.originalValue) {
+        newData[validation.rowIndex] = {
+          ...newData[validation.rowIndex],
+          [validation.columnId]: validation.suggestedValue
+        };
+        validationState.applied = true;
+        hasChanges = true;
+        console.log(`Auto-applied suggestion for ${cellKey}: ${validation.originalValue} → ${validation.suggestedValue}`);
+      }
       
       newValidations.set(cellKey, validationState);
       console.log(`Added validation for ${cellKey}:`, validationState);
@@ -76,7 +225,14 @@ function App() {
     
     console.log('Setting new validations map with', newValidations.size, 'entries');
     setValidations(newValidations);
-  }, [validations]);
+    
+    // Update data with auto-applied changes and save to history
+    if (hasChanges) {
+      setData(newData);
+      saveToHistory(newData);
+      console.log('Auto-applied', claudeResult.validations.filter(v => v.suggestedValue !== undefined).length, 'suggestions');
+    }
+  }, [validations, data, saveToHistory]);
 
   const addTaskStep = useCallback((step: Omit<TaskStep, 'id' | 'timestamp'>) => {
     const newStep: TaskStep = {
@@ -94,50 +250,83 @@ function App() {
     ));
   }, []);
 
-  const simulateStreamingSteps = useCallback(async (taskId: string) => {
-    // Step 1: Initialize task
-    const step1Id = addTaskStep({
-      type: 'analysis',
-      description: 'Initializing data analysis',
-      status: 'running'
-    });
+  const connectToTaskStream = useCallback((taskId: string) => {
+    const eventSource = new EventSource(`${import.meta.env.VITE_API_URL || 'http://localhost:8787'}/api/tasks/${taskId}/stream`);
     
-    await new Promise(resolve => setTimeout(resolve, 500));
-    updateTaskStep(step1Id, { status: 'completed' });
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        switch (data.type) {
+          case 'connected':
+            console.log('Connected to task stream:', data.taskId);
+            break;
+            
+          case 'task_event':
+            handleStreamingEvent(data.event);
+            break;
+            
+          case 'task_complete':
+            console.log('Task completed via stream:', data.status);
+            eventSource.close();
+            break;
+            
+          case 'error':
+            console.error('Stream error:', data.message);
+            eventSource.close();
+            break;
+        }
+      } catch (error) {
+        console.error('Failed to parse streaming data:', error);
+      }
+    };
 
-    // Step 2: Web search (if applicable)
-    const step2Id = addTaskStep({
-      type: 'search',
-      description: 'Searching scientific databases for compound validation',
-      status: 'running',
-      details: 'Accessing PubChem, ChEMBL, and literature databases'
-    });
-    
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    updateTaskStep(step2Id, { status: 'completed' });
+    eventSource.onerror = (error) => {
+      console.error('EventSource error:', error);
+      eventSource.close();
+    };
 
-    // Step 3: Code execution
-    const step3Id = addTaskStep({
-      type: 'code',
-      description: 'Running molecular property calculations',
-      status: 'running',
-      details: 'Calculating descriptors and validating SMILES structures'
-    });
-    
-    await new Promise(resolve => setTimeout(resolve, 800));
-    updateTaskStep(step3Id, { status: 'completed' });
+    return eventSource;
+  }, []);
 
-    // Step 4: Final validation
-    const step4Id = addTaskStep({
-      type: 'validation',
-      description: 'Generating validation results',
-      status: 'running',
-      details: 'Analyzing patterns and formatting structured output'
-    });
-    
-    await new Promise(resolve => setTimeout(resolve, 600));
-    updateTaskStep(step4Id, { status: 'completed' });
-  }, [addTaskStep, updateTaskStep]);
+  const handleStreamingEvent = useCallback((event: any) => {
+    const stepTypeMap = {
+      'analysis_start': 'analysis',
+      'tool_start': event.tool === 'web_search' ? 'search' : event.tool === 'bash' ? 'code' : 'validation',
+      'tool_complete': event.tool === 'web_search' ? 'search' : event.tool === 'bash' ? 'code' : 'validation'
+    };
+
+    if (event.type === 'analysis_start' || event.type === 'tool_start') {
+      const stepId = addTaskStep({
+        type: stepTypeMap[event.type] || 'analysis',
+        description: event.description,
+        status: 'running',
+        details: event.details
+      });
+      
+      // Store step ID for later completion
+      setTaskSteps(prev => prev.map(step => 
+        step.description === event.description 
+          ? { ...step, id: stepId }
+          : step
+      ));
+    } 
+    else if (event.type === 'tool_complete' || event.type === 'analysis_complete') {
+      // Find and complete the corresponding step
+      setTaskSteps(prev => prev.map(step => 
+        step.description.includes(event.description.split(' ')[0]) && step.status === 'running'
+          ? { ...step, status: 'completed', details: event.data ? JSON.stringify(event.data) : step.details }
+          : step
+      ));
+    }
+    else if (event.type === 'tool_error') {
+      setTaskSteps(prev => prev.map(step => 
+        step.description.includes(event.description.split(' ')[0]) && step.status === 'running'
+          ? { ...step, status: 'error', details: event.details }
+          : step
+      ));
+    }
+  }, [addTaskStep]);
 
   const handleExecuteTask = async (prompt: string) => {
     setIsTaskRunning(true);
@@ -167,8 +356,8 @@ function App() {
       
       setCurrentTask(newTask);
       
-      // Start streaming simulation
-      simulateStreamingSteps(response.taskId);
+      // Connect to real-time streaming
+      const eventSource = connectToTaskStream(response.taskId);
       
       // Poll for task completion
       const pollForCompletion = async () => {
@@ -209,11 +398,13 @@ function App() {
               },
             });
             setIsTaskRunning(false);
+            eventSource.close();
           } else {
             // Still processing, poll again
             setTimeout(pollForCompletion, 1000);
           }
         } catch (error) {
+          eventSource.close();
           setCurrentTask({
             ...newTask,
             status: 'failed',
@@ -248,14 +439,31 @@ function App() {
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
             <div className="xl:col-span-3 space-y-4 min-w-0">
+              {/* Version History Component */}
+              {dataHistory.length > 1 && (
+                <VersionHistory
+                  dataHistory={dataHistory}
+                  currentIndex={historyIndex}
+                  onNavigate={navigateHistory}
+                />
+              )}
+              
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
-                  <h2 className="text-xl font-semibold truncate">{filename}</h2>
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-xl font-semibold truncate">{filename}</h2>
+                    <ValidationLegend />
+                  </div>
+                  
                   <button
                     onClick={() => {
                       setData([]);
+                      setOriginalData([]);
+                      setDataHistory([]);
+                      setHistoryIndex(-1);
                       setFilename('');
                       setSelection({ rows: [], columns: [], cells: [] });
+                      setValidations(new Map());
                     }}
                     className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
                   >
@@ -268,17 +476,35 @@ function App() {
                     data={data} 
                     validations={validations}
                     onSelectionChange={handleSelectionChange}
+                    onConfirmValidation={confirmValidation}
+                    onApplyValidation={(rowIndex, columnId) => {
+                      const cellKey = `${rowIndex}-${columnId}`;
+                      const validation = validations.get(cellKey);
+                      if (validation?.validatedValue !== undefined) {
+                        applyValidation({
+                          rowIndex,
+                          columnId,
+                          suggestedValue: validation.validatedValue,
+                          originalValue: validation.originalValue,
+                          status: validation.status as any,
+                          reason: validation.notes || ''
+                        });
+                      }
+                    }}
                   />
                 </div>
               </div>
               
               {/* Task Progress Container */}
-              {(isTaskRunning || taskSteps.length > 0) && (
+              {(isTaskRunning || taskSteps.length > 0 || validations.size > 0) && (
                 <TaskProgress
                   taskId={currentTask?.id || ''}
                   prompt={currentTask?.prompt || ''}
                   steps={taskSteps}
                   isRunning={isTaskRunning}
+                  validationCount={Array.from(validations.values()).filter(v => v.status === 'auto_updated' || v.status === 'conflict').length}
+                  onConfirmAll={confirmAllValidations}
+                  onDismissAll={dismissAllValidations}
                 />
               )}
             </div>

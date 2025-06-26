@@ -15,6 +15,9 @@ interface TaskProgressProps {
   prompt: string;
   steps: TaskStep[];
   isRunning: boolean;
+  validationCount?: number;
+  onConfirmAll?: () => void;
+  onDismissAll?: () => void;
 }
 
 const stepIcons = {
@@ -36,6 +39,9 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
   prompt,
   steps,
   isRunning,
+  validationCount = 0,
+  onConfirmAll,
+  onDismissAll,
 }) => {
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4 mt-4">
@@ -94,6 +100,35 @@ export const TaskProgress: React.FC<TaskProgressProps> = ({
         <p className="text-sm text-gray-500 text-center py-4">
           No active tasks
         </p>
+      )}
+      
+      {/* Batch Actions for Validations */}
+      {!isRunning && validationCount > 0 && (onConfirmAll || onDismissAll) && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-gray-600">
+              {validationCount} validation{validationCount === 1 ? '' : 's'} pending
+            </span>
+            <div className="flex gap-2">
+              {onConfirmAll && (
+                <button
+                  onClick={onConfirmAll}
+                  className="px-3 py-1 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded transition-colors"
+                >
+                  Confirm All
+                </button>
+              )}
+              {onDismissAll && (
+                <button
+                  onClick={onDismissAll}
+                  className="px-3 py-1 text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 rounded transition-colors"
+                >
+                  Dismiss All
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

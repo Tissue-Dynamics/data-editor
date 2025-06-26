@@ -13,16 +13,49 @@ import type { DataRow, Selection } from '../../types/data';
 import type { ValidationState } from '../../types/validation';
 import { ValidationIndicator } from './ValidationIndicator';
 
+// Helper functions for status orbs - new color scheme per user specs
+const getStatusOrbColor = (status: ValidationState['status']): string => {
+  switch (status) {
+    case 'auto_updated': return 'bg-orange-500'; // Orange for auto-updated values
+    case 'confirmed': return 'bg-green-500';     // Green for user-confirmed values  
+    case 'conflict': return 'bg-red-500';        // Red for conflicts/unconfirmable data
+    case 'unchecked': return 'bg-gray-300';      // Grey for never checked
+    case 'pending': return 'bg-gray-400 animate-pulse'; // Loading state
+    default: return 'bg-gray-300';               // Default grey
+  }
+};
+
+const getStatusTooltip = (validation: ValidationState): string => {
+  switch (validation.status) {
+    case 'auto_updated':
+      return `Auto-updated: ${validation.notes || 'Value updated by AI'}\nClick to confirm`;
+    case 'confirmed':
+      return `Confirmed: ${validation.notes || 'User validated this value'}`;
+    case 'conflict':
+      return `Conflict: ${validation.notes || 'AI found conflicting information'}`;
+    case 'unchecked':
+      return `Unchecked: Click to mark as confirmed`;
+    case 'pending':
+      return 'Analyzing...';
+    default:
+      return validation.notes || 'No validation data';
+  }
+};
+
 interface DataTableProps {
   data: DataRow[];
   validations?: Map<string, ValidationState>;
   onSelectionChange?: (selection: Selection) => void;
+  onApplyValidation?: (rowIndex: number, columnId: string) => void;
+  onConfirmValidation?: (rowIndex: number, columnId: string) => void;
 }
 
 export const DataTable: React.FC<DataTableProps> = ({ 
   data, 
   validations = new Map(),
-  onSelectionChange 
+  onSelectionChange,
+  onApplyValidation,
+  onConfirmValidation 
 }) => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -155,32 +188,39 @@ export const DataTable: React.FC<DataTableProps> = ({
                     const validation = validations.get(cellKey);
                     
                     return (
-                      <td key={cell.id} className="px-4 py-2 data-table-cell relative">
+                      <td key={cell.id} className="px-4 py-2 data-table-cell relative group">
                         <div className="flex items-center gap-2">
-                          <span>{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>
-                          {validation && (
-                            <span className="flex-shrink-0">
-                              {validation.status === 'validated' && (
-                                <span className="text-green-600 text-xs" title={`✓ ${validation.notes || 'Valid'}`}>
-                                  ✓
-                                </span>
-                              )}
-                              {validation.status === 'warning' && (
-                                <span className="text-yellow-600 text-xs" title={`⚠ ${validation.notes || 'Warning'}`}>
-                                  ⚠️
-                                </span>
-                              )}
-                              {validation.status === 'error' && (
-                                <span className="text-red-600 text-xs" title={`✗ ${validation.notes || 'Error'}`}>
-                                  ❌
-                                </span>
-                              )}
-                            </span>
-                          )}
+                          {/* Status Orb */}
+                          <div className="flex-shrink-0">
+                            {validation ? (
+                              <div 
+                                className={`w-2 h-2 rounded-full ${getStatusOrbColor(validation.status)} ${
+                                  (validation.status === 'auto_updated' || validation.status === 'unchecked') ? 'cursor-pointer hover:scale-125 transition-transform' : ''
+                                }`}
+                                title={getStatusTooltip(validation)}
+                                onClick={() => {
+                                  if (validation.status === 'auto_updated' && onConfirmValidation) {
+                                    onConfirmValidation(row.index, cell.column.id);
+                                  } else if (validation.status === 'unchecked' && onConfirmValidation) {
+                                    onConfirmValidation(row.index, cell.column.id);
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div className="w-2 h-2 rounded-full bg-gray-300" title="No validation data" />
+                            )}
+                          </div>
+                          
+                          {/* Cell Value */}
+                          <span className="flex-1">{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>
                         </div>
-                        {validation && validation.validatedValue !== undefined && validation.validatedValue !== validation.originalValue && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            Suggested: {String(validation.validatedValue)}
+                        
+                        {/* Action Tooltip on Hover */}
+                        {validation && validation.status === 'auto_updated' && (
+                          <div className="absolute z-10 left-0 top-full mt-1 bg-black text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                            Click to confirm: {String(validation.validatedValue)}
+                            <br />
+                            {validation.notes}
                           </div>
                         )}
                       </td>

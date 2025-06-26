@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
 import { createClaudeService } from './services/claude';
+import { TaskStreaming } from './utils/streaming';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -27,6 +28,58 @@ app.use('/*', cors({
 // Health check endpoint
 app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Streaming endpoint for real-time task updates
+app.get('/api/tasks/:taskId/stream', async (c) => {
+  const taskId = c.req.param('taskId');
+  
+  // Set up Server-Sent Events
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-cache');
+  c.header('Connection', 'keep-alive');
+  
+  return c.streamText(async (stream) => {
+    // Send connection confirmation
+    stream.writeln(`data: ${JSON.stringify({ type: 'connected', taskId })}\n`);
+
+    // Register for real-time events
+    const unsubscribe = TaskStreaming.addStream(taskId, (event) => {
+      stream.writeln(`data: ${JSON.stringify({
+        type: 'task_event',
+        event: event
+      })}\n`);
+    });
+
+    // Also monitor task completion
+    const pollCompletion = setInterval(async () => {
+      const task = tasks.get(taskId);
+      if (!task) {
+        stream.writeln(`data: ${JSON.stringify({ type: 'error', message: 'Task not found' })}\n`);
+        clearInterval(pollCompletion);
+        unsubscribe();
+        return;
+      }
+
+      if (task.status === 'completed' || task.status === 'failed') {
+        stream.writeln(`data: ${JSON.stringify({
+          type: 'task_complete',
+          status: task.status,
+          result: task.result,
+          taskId: taskId
+        })}\n`);
+        clearInterval(pollCompletion);
+        unsubscribe();
+        TaskStreaming.removeTask(taskId);
+      }
+    }, 1000);
+
+    // Clean up on stream close
+    stream.onAbort(() => {
+      clearInterval(pollCompletion);
+      unsubscribe();
+    });
+  });
 });
 
 // Main task execution endpoint
@@ -82,7 +135,9 @@ async function processTask(
     console.log(`[Task ${taskId}] Data rows: ${data?.length || 0}`);
     console.log(`[Task ${taskId}] Selected rows: ${selectedRows?.length || 0}`);
     console.log(`[Task ${taskId}] Selected columns: ${selectedColumns?.join(', ') || 'none'}`);
-    console.log(`[Task ${taskId}] Sample data:`, JSON.stringify(data?.slice(0, 2), null, 2));
+
+    // Emit analysis start event
+    TaskStreaming.emitAnalysisStart(taskId, 'Initializing data analysis');
 
     // Update status to processing
     task.status = 'processing';
@@ -93,11 +148,14 @@ async function processTask(
 
     // Analyze data with Claude
     console.log(`[Task ${taskId}] Calling Claude...`);
+    TaskStreaming.emitAnalysisStart(taskId, 'Starting Claude analysis with web search and code execution');
+    
     const result = await claudeService.analyzeData(
       prompt,
       data || [],
       selectedRows,
-      selectedColumns
+      selectedColumns,
+      taskId // Pass taskId for streaming
     );
 
     console.log(`[Task ${taskId}] Claude analysis completed!`);

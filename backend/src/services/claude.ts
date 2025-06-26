@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 // import { query, type SDKMessage } from '@anthropic-ai/claude-code'; // Not compatible with Cloudflare Workers
 import type { Env } from '../types';
+import { TaskStreaming } from '../utils/streaming';
 
 interface ClaudeConfig {
   apiKey?: string;
@@ -25,13 +26,14 @@ export class ClaudeService {
     prompt: string,
     data: Record<string, any>[],
     selectedRows?: number[],
-    selectedColumns?: string[]
+    selectedColumns?: string[],
+    taskId?: string
   ): Promise<{
     analysis: string;
     validations?: Array<{
       rowIndex: number;
       columnId: string;
-      status: 'valid' | 'warning' | 'error';
+      status: 'valid' | 'warning' | 'error' | 'conflict';
       originalValue: any;
       suggestedValue?: any;
       reason: string;
@@ -56,9 +58,22 @@ export class ClaudeService {
     // Use Anthropic API (Claude Code SDK not compatible with Workers)
     if (this.anthropic) {
       try {
-        const result = await this.useAnthropicAPI(prompt, relevantData, selectedRows, selectedColumns);
+        if (taskId) {
+          TaskStreaming.emitToolStart(taskId, 'structured_output', 'Preparing Claude-4 analysis with tools');
+        }
+        const result = await this.useAnthropicAPI(prompt, relevantData, selectedRows, selectedColumns, taskId);
+        if (taskId) {
+          TaskStreaming.emitAnalysisComplete(taskId, 'Claude analysis completed successfully', { 
+            validationCount: result.validations?.length || 0,
+            method: 'anthropic-api'
+          });
+        }
         return { ...result, method: 'anthropic-api' };
       } catch (error) {
+        if (taskId) {
+          TaskStreaming.emitToolError(taskId, 'structured_output', 'Claude analysis failed', 
+            error instanceof Error ? error.message : 'Unknown error');
+        }
         console.error('Anthropic API error:', error);
         throw new Error(`Analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
@@ -73,13 +88,14 @@ export class ClaudeService {
     prompt: string,
     data: Record<string, any>[],
     selectedRows?: number[],
-    selectedColumns?: string[]
+    selectedColumns?: string[],
+    taskId?: string
   ): Promise<{
     analysis: string;
     validations?: Array<{
       rowIndex: number;
       columnId: string;
-      status: 'valid' | 'warning' | 'error';
+      status: 'valid' | 'warning' | 'error' | 'conflict';
       originalValue: any;
       suggestedValue?: any;
       reason: string;
@@ -116,7 +132,7 @@ export class ClaudeService {
                 },
                 status: {
                   type: "string",
-                  enum: ["valid", "warning", "error"],
+                  enum: ["valid", "warning", "error", "conflict"],
                   description: "Validation status of this data point"
                 },
                 originalValue: {
@@ -139,6 +155,11 @@ export class ClaudeService {
     };
 
     const userMessage = this.buildAnalysisPrompt(prompt, data, selectedRows, selectedColumns);
+
+    if (taskId) {
+      TaskStreaming.emitToolStart(taskId, 'web_search', 'Searching scientific databases for compound validation', 
+        'Accessing PubChem, ChEMBL, and literature databases');
+    }
 
     const response = await this.anthropic.messages.create({
       model: 'claude-4-sonnet-20250514',
@@ -165,25 +186,57 @@ export class ClaudeService {
       ],
     });
 
-    // Extract structured output from tool use
+    // Check if Claude used tools and emit appropriate events
+    let usedWebSearch = false;
+    let usedBash = false;
+    
     for (const content of response.content) {
-      if (content.type === 'tool_use' && content.name === 'data_analysis_result') {
-        const result = content.input as {
-          analysis: string;
-          validations?: Array<{
-            rowIndex: number;
-            columnId: string;
-            status: 'valid' | 'warning' | 'error';
-            originalValue: any;
-            suggestedValue?: any;
-            reason: string;
-          }>;
-        };
-        
-        return {
-          analysis: result.analysis,
-          validations: result.validations,
-        };
+      if (content.type === 'tool_use') {
+        if (content.name === 'web_search' && taskId) {
+          usedWebSearch = true;
+          TaskStreaming.emitToolComplete(taskId, 'web_search', 'Scientific database search completed');
+          TaskStreaming.emitToolStart(taskId, 'bash', 'Running molecular property calculations', 
+            'Calculating descriptors and validating SMILES structures');
+        }
+        if (content.name === 'bash' && taskId) {
+          usedBash = true;
+          TaskStreaming.emitToolComplete(taskId, 'bash', 'Molecular calculations completed');
+        }
+        if (content.name === 'data_analysis_result') {
+          if (taskId) {
+            if (!usedWebSearch) {
+              TaskStreaming.emitToolComplete(taskId, 'web_search', 'Analysis completed without web search');
+            }
+            if (!usedBash) {
+              TaskStreaming.emitToolComplete(taskId, 'bash', 'Analysis completed without additional calculations');
+            }
+            TaskStreaming.emitToolStart(taskId, 'structured_output', 'Generating validation results', 
+              'Analyzing patterns and formatting structured output');
+          }
+          
+          const result = content.input as {
+            analysis: string;
+            validations?: Array<{
+              rowIndex: number;
+              columnId: string;
+              status: 'valid' | 'warning' | 'error' | 'conflict';
+              originalValue: any;
+              suggestedValue?: any;
+              reason: string;
+            }>;
+          };
+          
+          if (taskId) {
+            TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
+              validationCount: result.validations?.length || 0
+            });
+          }
+          
+          return {
+            analysis: result.analysis,
+            validations: result.validations,
+          };
+        }
       }
     }
 
@@ -200,7 +253,7 @@ export class ClaudeService {
     validations?: Array<{
       rowIndex: number;
       columnId: string;
-      status: 'valid' | 'warning' | 'error';
+      status: 'valid' | 'warning' | 'error' | 'conflict';
       originalValue: any;
       suggestedValue?: any;
       reason: string;
@@ -223,7 +276,7 @@ Data preview: ${JSON.stringify(data.slice(0, 2), null, 2)}`;
     const mockValidations: Array<{
       rowIndex: number;
       columnId: string;
-      status: 'valid' | 'warning' | 'error';
+      status: 'valid' | 'warning' | 'error' | 'conflict';
       originalValue: any;
       suggestedValue?: any;
       reason: string;
@@ -311,7 +364,7 @@ If this is not a validation task, provide your analysis in a clear, structured f
     const validations: Array<{
       rowIndex: number;
       columnId: string;
-      status: 'valid' | 'warning' | 'error';
+      status: 'valid' | 'warning' | 'error' | 'conflict';
       originalValue: any;
       suggestedValue?: any;
       reason: string;
