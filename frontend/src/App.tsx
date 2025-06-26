@@ -97,6 +97,8 @@ function App() {
       setCurrentTask(null);
       setTaskError(null);
       setTaskSteps([]);
+      setIsTaskRunning(false);
+      setValidationSummary(null);
       setShowSessionsList(false);
     } catch (error) {
       console.error('Failed to load session:', error);
@@ -760,7 +762,13 @@ function App() {
               {/* Task Progress Container */}
               {(() => {
                 const pendingValidations = Array.from(validations.values()).filter(v => v.status === 'auto_updated' && !v.confirmed).length;
-                const showProgress = isTaskRunning || taskSteps.length > 0 || pendingValidations > 0;
+                const hasActiveTask = isTaskRunning || (currentTask && currentTask.status === 'running');
+                const hasSteps = taskSteps.length > 0;
+                const hasPendingValidations = pendingValidations > 0;
+                
+                // Only show if we have actual content to display
+                const showProgress = (hasActiveTask || hasSteps || hasPendingValidations) && 
+                                   (currentTask?.prompt || hasSteps || hasPendingValidations);
                 
                 return showProgress ? (
                   <TaskProgress

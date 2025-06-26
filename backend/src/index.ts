@@ -409,15 +409,20 @@ async function processTask(
     console.log(`[Task ${taskId}] Calling Claude...`);
     TaskStreaming.emitAnalysisStart(taskId, `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`);
     
-    const result = await claudeService.analyzeData(
-      prompt,
-      data || [],
-      selectedRows,
-      selectedColumns,
-      taskId // Pass taskId for streaming
-    );
-
-    console.log(`[Task ${taskId}] Claude analysis completed!`);
+    let result;
+    try {
+      result = await claudeService.analyzeData(
+        prompt,
+        data || [],
+        selectedRows,
+        selectedColumns,
+        taskId // Pass taskId for streaming
+      );
+      console.log(`[Task ${taskId}] Claude analysis completed!`);
+    } catch (claudeError) {
+      console.error(`[Task ${taskId}] Claude analysis failed:`, claudeError);
+      throw claudeError;
+    }
     console.log(`[Task ${taskId}] Method used: ${result.method}`);
     console.log(`[Task ${taskId}] Analysis preview: ${result.analysis.substring(0, 200)}...`);
     
