@@ -1,7 +1,7 @@
 # Dynamic Data Analysis Web App Specification
 
 ## Overview
-A web application that allows users to upload and interact with tabular data (CSV/JSON), select specific rows or columns, and leverage Claude Code SDK to perform intelligent analysis tasks such as data validation, research for missing fields, and quality checks.
+A web application that allows users to upload and interact with tabular data (CSV/JSON), select specific rows or columns, and leverage Claude Code SDK to perform intelligent analysis tasks described in natural language. Claude determines the best approach based on the user's prompt and selected data context.
 
 ## Architecture Overview
 
@@ -121,7 +121,7 @@ A web application that allows users to upload and interact with tabular data (CS
 ### 3. Dynamic Task System
 - **Worker Architecture**:
   - Main orchestrator worker handles routing
-  - Dedicated workers spawned per task type
+  - Dedicated workers spawned per task request
   - Resource isolation and monitoring
   - Automatic scaling based on load
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a web-based data analysis application that integrates Claude's AI capabilities for intelligent data validation, enrichment, and transformation. The frontend is now implemented with basic data table functionality.
+This is a web-based data analysis application that integrates Claude's AI capabilities for intelligent data analysis tasks. Users describe what they want to do in natural language, and Claude figures out the best approach. The frontend is now implemented with basic data table functionality.
 
 ## Current Status
 

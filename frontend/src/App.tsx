@@ -4,7 +4,6 @@ import { DataTable } from './components/DataTable/DataTable';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
-import type { TaskType } from './types/tasks';
 
 function App() {
   const [data, setData] = useState<DataRow[]>([]);
@@ -25,10 +24,10 @@ function App() {
     setSelection(newSelection);
   };
 
-  const handleExecuteTask = (prompt: string, taskType: TaskType) => {
-    console.log('Executing task:', { prompt, taskType, selection });
+  const handleExecuteTask = (prompt: string) => {
+    console.log('Executing task:', { prompt, selection });
     // TODO: Implement actual task execution
-    alert(`Task will be executed:\nType: ${taskType}\nPrompt: ${prompt}\nSelection: ${selection.rows.length} rows, ${selection.columns.length} columns`);
+    alert(`Task will be executed:\nPrompt: ${prompt}\nSelection: ${selection.rows.length} rows, ${selection.columns.length} columns`);
   };
 
   return (

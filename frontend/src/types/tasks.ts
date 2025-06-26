@@ -1,14 +1,5 @@
-export type TaskType = 
-  | 'validate_rows'
-  | 'fill_missing'
-  | 'column_test'
-  | 'transform'
-  | 'research'
-  | 'general';
-
 export interface Task {
   id: string;
-  type: TaskType;
   prompt: string;
   selection: {
     rows: number[];
