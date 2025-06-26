@@ -18,11 +18,12 @@ ENVIRONMENT = "development"
 # Secrets are configured via: wrangler secret put ANTHROPIC_API_KEY
 # This makes them available both locally and in production
 
-# Future bindings (uncomment when ready)
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "data-editor"
-# database_id = "your-database-id"
+# D1 Database configuration
+[[d1_databases]]
+binding = "DB"
+database_name = "data-editor"
+database_id = "placeholder-for-actual-db-id"
+preview_database_id = "placeholder-for-preview-db-id"
 
 # [[r2_buckets]]
 # binding = "R2_BUCKET"

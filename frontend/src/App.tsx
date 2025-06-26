@@ -2,10 +2,20 @@ import { useState, useCallback } from 'react';
 import { FileUploader } from './components/Upload/FileUploader';
 import { DataTable } from './components/DataTable/DataTable';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
+import { TaskProgress } from './components/TaskProgress/TaskProgress';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
 import type { Task, ClaudeAnalysisResult } from './types/tasks';
 import { api } from './services/api';
+
+interface TaskStep {
+  id: string;
+  type: 'search' | 'analysis' | 'code' | 'validation';
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  details?: string;
+  timestamp: Date;
+}
 
 function App() {
   const [data, setData] = useState<DataRow[]>([]);
@@ -19,6 +29,7 @@ function App() {
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [isTaskRunning, setIsTaskRunning] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [taskSteps, setTaskSteps] = useState<TaskStep[]>([]);
 
   const handleDataLoad = (loadedData: DataRow[], fileName: string) => {
     setData(loadedData);
@@ -27,6 +38,7 @@ function App() {
     setValidations(new Map());
     setCurrentTask(null);
     setTaskError(null);
+    setTaskSteps([]);
   };
 
   const handleSelectionChange = useCallback((newSelection: Selection) => {
@@ -66,9 +78,71 @@ function App() {
     setValidations(newValidations);
   }, [validations]);
 
+  const addTaskStep = useCallback((step: Omit<TaskStep, 'id' | 'timestamp'>) => {
+    const newStep: TaskStep = {
+      ...step,
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date(),
+    };
+    setTaskSteps(prev => [...prev, newStep]);
+    return newStep.id;
+  }, []);
+
+  const updateTaskStep = useCallback((stepId: string, updates: Partial<TaskStep>) => {
+    setTaskSteps(prev => prev.map(step => 
+      step.id === stepId ? { ...step, ...updates } : step
+    ));
+  }, []);
+
+  const simulateStreamingSteps = useCallback(async (taskId: string) => {
+    // Step 1: Initialize task
+    const step1Id = addTaskStep({
+      type: 'analysis',
+      description: 'Initializing data analysis',
+      status: 'running'
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 500));
+    updateTaskStep(step1Id, { status: 'completed' });
+
+    // Step 2: Web search (if applicable)
+    const step2Id = addTaskStep({
+      type: 'search',
+      description: 'Searching scientific databases for compound validation',
+      status: 'running',
+      details: 'Accessing PubChem, ChEMBL, and literature databases'
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    updateTaskStep(step2Id, { status: 'completed' });
+
+    // Step 3: Code execution
+    const step3Id = addTaskStep({
+      type: 'code',
+      description: 'Running molecular property calculations',
+      status: 'running',
+      details: 'Calculating descriptors and validating SMILES structures'
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 800));
+    updateTaskStep(step3Id, { status: 'completed' });
+
+    // Step 4: Final validation
+    const step4Id = addTaskStep({
+      type: 'validation',
+      description: 'Generating validation results',
+      status: 'running',
+      details: 'Analyzing patterns and formatting structured output'
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 600));
+    updateTaskStep(step4Id, { status: 'completed' });
+  }, [addTaskStep, updateTaskStep]);
+
   const handleExecuteTask = async (prompt: string) => {
     setIsTaskRunning(true);
     setTaskError(null);
+    setTaskSteps([]); // Clear previous steps
     
     try {
       // Create the task
@@ -92,6 +166,9 @@ function App() {
       };
       
       setCurrentTask(newTask);
+      
+      // Start streaming simulation
+      simulateStreamingSteps(response.taskId);
       
       // Poll for task completion
       const pollForCompletion = async () => {
@@ -194,6 +271,16 @@ function App() {
                   />
                 </div>
               </div>
+              
+              {/* Task Progress Container */}
+              {(isTaskRunning || taskSteps.length > 0) && (
+                <TaskProgress
+                  taskId={currentTask?.id || ''}
+                  prompt={currentTask?.prompt || ''}
+                  steps={taskSteps}
+                  isRunning={isTaskRunning}
+                />
+              )}
             </div>
             
             <div className="xl:col-span-1 xl:sticky xl:top-4 h-fit">

@@ -1,8 +1,10 @@
+import type { D1Database } from '@cloudflare/workers-types';
+
 export interface Env {
   // Cloudflare bindings
   ANTHROPIC_API_KEY?: string; // Optional - will try Claude Desktop first
+  DB: D1Database; // D1 database for validation persistence
   // Future bindings:
-  // DB: D1Database;
   // R2_BUCKET: R2Bucket;
 }
 
