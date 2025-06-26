@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react';
 import { FileUploader } from './components/Upload/FileUploader';
 import { DataTable } from './components/DataTable/DataTable';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
-import { TaskProgress } from './components/TaskProgress/TaskProgress';
 import { VersionHistory } from './components/VersionHistory/VersionHistory';
 import { ValidationLegend } from './components/ValidationLegend/ValidationLegend';
 import { ValidationSummary } from './components/ValidationSummary/ValidationSummary';
@@ -452,6 +451,65 @@ function App() {
     }
   }, [addTaskStep]);
 
+  const handleApplyTaskResults = useCallback((task: any) => {
+    if (!task.result?.validations) return;
+    
+    console.log(`Applying ${task.result.validations.length} validations from task`);
+    
+    // Create a copy of current data
+    const newData = [...data];
+    let changesCount = 0;
+    
+    // Apply all validations
+    task.result.validations.forEach((validation: any) => {
+      if (validation.suggestedValue !== undefined) {
+        newData[validation.rowIndex] = {
+          ...newData[validation.rowIndex],
+          [validation.columnId]: validation.suggestedValue
+        };
+        changesCount++;
+      }
+    });
+    
+    if (changesCount > 0) {
+      // Update data and save to history
+      setData(newData);
+      saveToHistory(newData, `Applied ${changesCount} changes from task: ${task.prompt}`);
+      
+      // Show validation summary
+      setValidationSummary({
+        analysis: task.result.analysis || `Applied ${changesCount} validations from completed task`,
+        messages: task.result.validations.map((v: any) => ({
+          rowIndex: v.rowIndex,
+          columnId: v.columnId,
+          status: v.status,
+          message: v.reason,
+          suggestedValue: v.suggestedValue,
+          isEstimate: false
+        }))
+      });
+      
+      // Update validation states
+      const newValidations = new Map(validations);
+      task.result.validations.forEach((validation: any) => {
+        const cellKey = `${validation.rowIndex}-${validation.columnId}`;
+        newValidations.set(cellKey, {
+          cellKey,
+          status: 'confirmed',
+          originalValue: validation.originalValue,
+          validatedValue: validation.suggestedValue,
+          confidence: 0.9,
+          source: 'Applied from task history',
+          notes: validation.reason,
+          timestamp: new Date(),
+          applied: true,
+          confirmed: true,
+        });
+      });
+      setValidations(newValidations);
+    }
+  }, [data, validations, saveToHistory]);
+
   const handleExecuteTask = async (prompt: string) => {
     setIsTaskRunning(true);
     setTaskError(null);
@@ -779,29 +837,6 @@ function App() {
                 </div>
               </div>
               
-              {/* Task Progress Container */}
-              {(() => {
-                const pendingValidations = Array.from(validations.values()).filter(v => v.status === 'auto_updated' && !v.confirmed).length;
-                const hasActiveTask = isTaskRunning || (currentTask && currentTask.status === 'running');
-                const hasSteps = taskSteps.length > 0;
-                const hasPendingValidations = pendingValidations > 0;
-                
-                // Only show if we have actual content to display
-                const showProgress = (hasActiveTask || hasSteps || hasPendingValidations) && 
-                                   (currentTask?.prompt || hasSteps || hasPendingValidations);
-                
-                return showProgress ? (
-                  <TaskProgress
-                    taskId={currentTask?.id || ''}
-                    prompt={currentTask?.prompt || ''}
-                    steps={taskSteps}
-                    isRunning={isTaskRunning}
-                    validationCount={pendingValidations}
-                    onConfirmAll={pendingValidations > 0 ? confirmAllValidations : undefined}
-                    onDismissAll={pendingValidations > 0 ? dismissAllValidations : undefined}
-                  />
-                ) : null;
-              })()}
             </div>
             
             <div className="xl:col-span-1 xl:sticky xl:top-4 h-fit space-y-4">
@@ -818,9 +853,13 @@ function App() {
                   <TaskHistory 
                     key={taskHistoryRefreshKey}
                     sessionId={currentSession.id}
-                    onTaskSelect={(task) => {
-                      console.log('Selected historical task:', task);
-                    }}
+                    currentTask={currentTask}
+                    isTaskRunning={isTaskRunning}
+                    taskSteps={taskSteps}
+                    pendingValidations={Array.from(validations.values()).filter(v => v.status === 'auto_updated' && !v.confirmed).length}
+                    onConfirmAll={confirmAllValidations}
+                    onDismissAll={dismissAllValidations}
+                    onApplyTaskResults={handleApplyTaskResults}
                   />
                 </div>
               )}

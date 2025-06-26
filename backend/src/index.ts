@@ -552,7 +552,8 @@ app.get('/api/sessions/:sessionId/tasks', async (c) => {
         completed_at: task.completed_at ? new Date(task.completed_at).toISOString() : undefined,
         execution_time_ms: task.execution_time_ms,
         analysis: task.analysis,
-        error_message: task.error_message
+        error_message: task.error_message,
+        result: task.result ? JSON.parse(task.result) : null
       }))
     });
   } catch (error) {

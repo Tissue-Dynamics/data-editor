@@ -11,14 +11,41 @@ interface TaskHistoryItem {
   execution_time_ms?: number;
   analysis?: string;
   error_message?: string;
+  result?: any; // Full task result including validations
 }
 
 interface TaskHistoryProps {
   sessionId: string;
-  onTaskSelect?: (task: TaskHistoryItem) => void;
+  currentTask?: {
+    id: string;
+    prompt: string;
+    status: string;
+  } | null;
+  isTaskRunning?: boolean;
+  taskSteps?: Array<{
+    id: string;
+    type: 'search' | 'analysis' | 'code' | 'validation';
+    description: string;
+    status: 'pending' | 'running' | 'completed' | 'error';
+    details?: string;
+    timestamp: Date;
+  }>;
+  pendingValidations?: number;
+  onConfirmAll?: () => void;
+  onDismissAll?: () => void;
+  onApplyTaskResults?: (task: TaskHistoryItem) => void;
 }
 
-export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
+export function TaskHistory({ 
+  sessionId, 
+  currentTask,
+  isTaskRunning,
+  taskSteps = [],
+  pendingValidations = 0,
+  onConfirmAll,
+  onDismissAll,
+  onApplyTaskResults
+}: TaskHistoryProps) {
   const [tasks, setTasks] = useState<TaskHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,7 +168,62 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-gray-700 mb-2">Task History</h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-gray-700">Tasks</h3>
+        {pendingValidations > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-orange-600">
+              {pendingValidations} pending validation{pendingValidations > 1 ? 's' : ''}
+            </span>
+            <button
+              onClick={onConfirmAll}
+              className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
+            >
+              Confirm All
+            </button>
+            <button
+              onClick={onDismissAll}
+              className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+            >
+              Dismiss All
+            </button>
+          </div>
+        )}
+      </div>
+      
+      {/* Current/Active Task */}
+      {currentTask && isTaskRunning && (
+        <div className="border-2 border-blue-200 rounded-lg p-3 bg-blue-50 mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium text-gray-900">
+              {currentTask.prompt}
+            </p>
+            <span className="text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded animate-pulse">
+              Running
+            </span>
+          </div>
+          
+          {taskSteps.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {taskSteps.map((step) => (
+                <div key={step.id} className="text-xs text-gray-600 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    step.status === 'running' ? 'bg-blue-500 animate-pulse' :
+                    step.status === 'completed' ? 'bg-green-500' :
+                    step.status === 'error' ? 'bg-red-500' :
+                    'bg-gray-400'
+                  }`} />
+                  <span>{step.description}</span>
+                  {step.details && (
+                    <span className="text-gray-500 text-xs">({step.details})</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {tasks.map((task) => (
           <div
@@ -149,7 +231,6 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
             className="border rounded-lg p-3 hover:bg-gray-50 cursor-pointer transition-colors"
             onClick={() => {
               setExpandedTaskId(expandedTaskId === task.id ? null : task.id);
-              onTaskSelect?.(task);
             }}
           >
             <div className="flex items-start justify-between">
@@ -201,6 +282,51 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
                     <p className="whitespace-pre-wrap">{task.analysis}</p>
                   </div>
                 )}
+                
+                {/* Show validations for completed tasks */}
+                {task.status === 'completed' && task.result?.validations && task.result.validations.length > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-gray-700">Found {task.result.validations.length} validations:</p>
+                      {onApplyTaskResults && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onApplyTaskResults(task);
+                          }}
+                          className="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                        >
+                          Apply as New Version
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {task.result.validations.map((validation: any, idx: number) => (
+                        <div key={idx} className="text-xs bg-gray-50 p-2 rounded">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">
+                              Row {validation.rowIndex + 1}, {validation.columnId}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-xs ${
+                              validation.status === 'valid' ? 'bg-green-100 text-green-700' :
+                              validation.status === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {validation.status}
+                            </span>
+                          </div>
+                          {validation.suggestedValue !== undefined && (
+                            <div className="mt-1 text-gray-600">
+                              {validation.originalValue} → {validation.suggestedValue}
+                            </div>
+                          )}
+                          <div className="mt-1 text-gray-500">{validation.reason}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
                 {task.error_message && (
                   <div className="text-sm text-red-600">
                     <p className="font-medium mb-1">Error:</p>
