@@ -1,0 +1,9 @@
+Company,Trial Phase,Drug Name,Indication,Market Cap,IC50 (µM),Status
+Pfizer,Phase 3,PF-123456,Oncology,250B,0.45,Active
+Moderna,Phase 2,mRNA-789,COVID-19,45B,,Recruiting
+,Phase 1,ABC-101,Alzheimer's,12B,1.2,Active
+Novartis,Phase 3,,Diabetes,180B,0.08,Completed
+BioNTech,,BNT-222,Cancer,35B,0.92,Planning
+Roche,Phase 2,RO-5555,Inflammation,,0.15,Active
+GSK,Phase 3,GSK-999,Respiratory,90B,,Recruiting
+Merck,Phase 1,MRK-444,,200B,2.5,

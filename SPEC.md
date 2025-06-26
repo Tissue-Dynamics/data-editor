@@ -41,24 +41,82 @@ A web application that allows users to upload and interact with tabular data (CS
   - Column reordering and resizing
 
 ### 2. Claude Code Integration
-- **Task Examples**:
-  - **Validation**: Randomly sample and verify data accuracy using web research for X set of rows
-  - **Research**: Fill missing fields using web research
-  - **Testing**: Generate and run data quality tests on a column level basis
-  - **Analysis**: Identify patterns, anomalies, correlations. General basic analysis
-  - **Enrichment**: Add calculated fields or external data
-  - **Cleaning**: Fix formatting, standardize values
 
-- **Execution Modes**:
-  - **Immediate**: Run on selected data instantly
-  - **Batch**: Queue multiple tasks for processing
-  - **Scheduled**: Regular validation runs
+#### Core Task Scenarios
 
-- **Result Handling**:
-  - Real-time streaming of Claude's responses
-  - Progress indicators for long-running tasks
-  - Result caching and versioning
-  - Export options (CSV, JSON, PDF report)
+1. **Row-Level Validation & Research**
+   - **Missing Value Completion**: Select rows → "Fill in missing values for these rows"
+     - Claude Code activates per row using web search and other tools
+     - Returns JSON with validated/filled values
+     - Visual indicators show which cells were validated/updated
+   
+   - **Bulk Verification**: "Take 20 of these rows and double check that they are correct"
+     - Spawns parallel workers using Claude Code SDK
+     - Each worker validates a row independently
+     - Compiles results showing error percentage
+     - Updates cell validation symbols (✓ for valid, ⚠️ for errors)
+
+2. **Column-Level Testing & Validation**
+   - **Value Range Testing**: Select column → "Write a test to ensure values are between 0-100µM"
+     - Generates and executes validation test
+     - Visually indicates which rows pass/fail
+     - Validation symbols persist until data changes
+     - When cell value changes, validation symbol is removed
+
+3. **Data Transformation & Enrichment**
+   - **Unit Conversion**: Select columns → "Create new column converting ng/mL to µM based on molecular weight"
+     - Generates transformation logic
+     - Creates new calculated column
+     - Maintains data lineage and formula visibility
+
+4. **Cell-Level Validation States**
+   - **Visual Indicators**:
+     - ✓ Green check: Validated and correct
+     - ⚠️ Yellow warning: Validation found issues
+     - 🔄 Blue spinner: Validation in progress
+     - ❌ Red X: Validation failed or error
+     - No symbol: Not yet validated or validation outdated
+   
+   - **Validation Persistence**:
+     - Validation results stored with timestamp
+     - Symbols cleared when underlying data changes
+     - Ability to re-validate previously validated data
+
+#### Execution Architecture
+
+- **Parallel Processing**:
+  - Row-by-row processing with independent Claude Code instances
+  - Configurable concurrency limits (e.g., 5-20 parallel workers)
+  - Progress tracking across all workers
+  - Result aggregation and error handling
+
+- **Tool Integration**:
+  - Each Claude Code instance has access to:
+    - Web search for fact verification
+    - Calculator for numeric validations
+    - Custom tools specific to domain (e.g., chemical databases)
+
+- **Result Format**:
+  ```json
+  {
+    "row_id": "123",
+    "validations": {
+      "company_name": {
+        "status": "validated",
+        "confidence": 0.95,
+        "source": "web_search",
+        "notes": "Verified via company website"
+      },
+      "trial_phase": {
+        "status": "corrected",
+        "original": "Phase 2",
+        "corrected": "Phase 3",
+        "source": "clinicaltrials.gov"
+      }
+    },
+    "overall_status": "validated_with_corrections"
+  }
+  ```
 
 ### 3. Dynamic Task System
 - **Worker Architecture**:
@@ -92,28 +150,65 @@ src/
 │   │   ├── DataTable.tsx
 │   │   ├── SelectionControls.tsx
 │   │   ├── ColumnHeader.tsx
-│   │   └── CellRenderer.tsx
+│   │   ├── CellRenderer.tsx
+│   │   ├── ValidationIndicator.tsx    // Shows ✓, ⚠️, ❌ states
+│   │   └── CellTooltip.tsx            // Shows validation details on hover
 │   ├── TaskPanel/
 │   │   ├── TaskSelector.tsx
 │   │   ├── PromptBuilder.tsx
-│   │   └── ResultsView.tsx
+│   │   ├── ResultsView.tsx
+│   │   └── ValidationSummary.tsx      // Shows overall validation stats
 │   ├── Upload/
 │   │   ├── FileUploader.tsx
 │   │   └── DataPreview.tsx
 │   └── Common/
 │       ├── StreamingOutput.tsx
-│       └── ProgressIndicator.tsx
+│       ├── ProgressIndicator.tsx
+│       └── ParallelTaskMonitor.tsx    // Shows progress of parallel workers
 ├── hooks/
 │   ├── useDataSelection.ts
 │   ├── useClaudeTask.ts
-│   └── useWebSocket.ts
+│   ├── useWebSocket.ts
+│   └── useValidationState.ts          // Manages cell validation states
 ├── services/
 │   ├── api.ts
 │   ├── dataParser.ts
-│   └── taskManager.ts
+│   ├── taskManager.ts
+│   └── validationCache.ts             // Caches validation results
 └── types/
     ├── data.ts
-    └── tasks.ts
+    ├── tasks.ts
+    └── validation.ts                   // Validation state types
+```
+
+#### Key UI Components
+
+**ValidationIndicator Component**
+```typescript
+interface ValidationState {
+  status: 'validated' | 'warning' | 'error' | 'pending' | null;
+  timestamp: Date;
+  source?: string;
+  notes?: string;
+  confidence?: number;
+}
+
+// Displays appropriate icon based on validation state
+// Clears automatically when cell data changes
+```
+
+**ParallelTaskMonitor Component**
+```typescript
+interface ParallelTaskProgress {
+  totalTasks: number;
+  completed: number;
+  inProgress: number;
+  failed: number;
+  results: ValidationResult[];
+}
+
+// Real-time progress bar and statistics
+// Shows individual worker status
 ```
 
 ### Backend API Design
@@ -215,6 +310,37 @@ CREATE TABLE task_history (
   event_type TEXT,
   data JSON
 );
+
+-- New tables for validation tracking
+CREATE TABLE cell_validations (
+  id TEXT PRIMARY KEY,
+  dataset_id TEXT REFERENCES datasets(id),
+  row_index INTEGER NOT NULL,
+  column_name TEXT NOT NULL,
+  validation_status TEXT NOT NULL, -- 'validated', 'warning', 'error'
+  original_value TEXT,
+  validated_value TEXT,
+  confidence REAL,
+  source TEXT,
+  notes TEXT,
+  task_id TEXT REFERENCES tasks(id),
+  validated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  invalidated_at DATETIME, -- Set when cell value changes
+  UNIQUE(dataset_id, row_index, column_name, invalidated_at)
+);
+
+CREATE TABLE validation_rules (
+  id TEXT PRIMARY KEY,
+  dataset_id TEXT REFERENCES datasets(id),
+  column_name TEXT,
+  rule_type TEXT NOT NULL, -- 'range', 'pattern', 'custom'
+  rule_config JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast validation lookups
+CREATE INDEX idx_cell_validations_lookup 
+ON cell_validations(dataset_id, row_index, column_name, invalidated_at);
 ```
 
 ## Security Considerations
@@ -348,25 +474,34 @@ CREATE TABLE task_history (
 
 ## Example Use Cases
 
-1. **Financial Data Validation**
-   - Upload quarterly reports
-   - Select specific columns (revenue, expenses)
-   - Run validation to check calculations
+1. **Clinical Trial Data Validation**
+   - Upload trial catalyst data with missing values
+   - Select rows with incomplete data → "Fill in missing company names and trial phases"
+   - Claude Code searches clinical trial databases and company websites
+   - Visual indicators show ✓ for validated cells, with source attribution
+   - Select "Phase" column → "Ensure all values are valid clinical trial phases"
+   - System generates test, marks invalid entries with ⚠️
 
-2. **Clinical Trial Data Enrichment**
-   - Upload trial catalyst data
-   - Select rows with missing company names
-   - Research and fill missing information
+2. **Laboratory Data Quality Control**
+   - Upload concentration measurements in various units
+   - Select concentration columns → "Convert all values to µM using molecular weights from column B"
+   - Creates new standardized column with formulas visible
+   - Select 20 random rows → "Double-check these measurements are within expected ranges"
+   - Parallel validation shows 95% accuracy rate, flags 1 outlier
 
-3. **E-commerce Inventory Audit**
-   - Upload product catalog
-   - Random sample 10% of items
-   - Verify pricing and descriptions
+3. **Drug Discovery Data Enrichment**
+   - Upload compound screening results
+   - Select IC50 column → "Validate that all values are between 0.01-100µM"
+   - Rows outside range get ⚠️ warning indicators
+   - When scientist corrects a flagged value, validation symbol automatically clears
+   - Re-run validation after corrections to ensure data quality
 
-4. **Customer Data Cleaning**
-   - Upload CRM export
-   - Select columns with formatting issues
-   - Standardize phone numbers, addresses
+4. **Research Publication Verification**
+   - Upload dataset from published paper
+   - Click "Validate Random Sample" → "Take 30 rows and verify against original sources"
+   - System spawns 30 parallel workers, each using web search
+   - Results show 93% match rate, 7% have minor discrepancies
+   - Each validated cell shows ✓ with timestamp and source
 
 ## API Documentation Preview
 
@@ -382,21 +517,62 @@ Content-Type: multipart/form-data
 }
 ```
 
-### Create Task
+### Create Validation Task
 ```http
 POST /api/tasks
 Content-Type: application/json
 
 {
   "datasetId": "ds_123",
-  "type": "research",
+  "type": "validate_rows",
+  "prompt": "Fill in missing values for these rows",
   "selection": {
     "rows": [1, 5, 10, 15],
-    "columns": ["Company", "Market_Cap"]
+    "columns": ["Company", "Market_Cap", "Trial_Phase"]
   },
   "config": {
-    "maxTurns": 5,
-    "priority": "high"
+    "parallel_workers": 4,
+    "tools": ["web_search"],
+    "max_turns": 5
+  }
+}
+```
+
+### Create Column Test Task
+```http
+POST /api/tasks
+Content-Type: application/json
+
+{
+  "datasetId": "ds_123",
+  "type": "column_test",
+  "prompt": "Write a test to ensure values are between 0-100µM",
+  "selection": {
+    "columns": ["IC50_Value"]
+  },
+  "config": {
+    "test_type": "range",
+    "persist_validation": true
+  }
+}
+```
+
+### Create Transformation Task
+```http
+POST /api/tasks
+Content-Type: application/json
+
+{
+  "datasetId": "ds_123",
+  "type": "transform",
+  "prompt": "Convert ng/mL to µM using molecular weight from MW_Column",
+  "selection": {
+    "source_columns": ["Concentration_ng_mL", "MW_Column"],
+    "target_column": "Concentration_uM"
+  },
+  "config": {
+    "formula_visible": true,
+    "create_new_column": true
   }
 }
 ```
