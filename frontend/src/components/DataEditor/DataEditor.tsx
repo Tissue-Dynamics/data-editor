@@ -6,117 +6,101 @@ import { ValidationLegend } from '../ValidationLegend/ValidationLegend';
 import { ValidationSummary } from '../ValidationSummary/ValidationSummary';
 import { CellHistory } from '../CellHistory/CellHistory';
 import { downloadAsCSV } from '../../utils/csvExport';
-import type { DataRow, Selection } from '../../types/data';
-import type { ValidationState } from '../../types/validation';
-import type { CellHistoryEntry } from '../../types/cellHistory';
 import { DataTableErrorBoundary } from '../Common/ErrorBoundary';
+import { useData, useValidationContext, useHistoryContext } from '../../contexts/AppProviders';
+import type { CellHistoryEntry } from '../../types/cellHistory';
+import type { CellValue } from '../../types/values';
 
-interface DataEditorProps {
-  data: DataRow[];
-  filename: string;
-  dataHistory: DataRow[][];
-  historyIndex: number;
-  validations: Map<string, ValidationState>;
-  validationSummary: {
-    analysis?: string;
-    messages: Array<{
-      rowIndex: number;
-      columnId: string;
-      status: 'valid' | 'warning' | 'error' | 'conflict';
-      message: string;
-      suggestedValue?: any;
-      isEstimate?: boolean;
-    }>;
-    rowDeletions?: Array<{
-      rowIndex: number;
-      reason: string;
-      confidence: 'high' | 'medium' | 'low';
-    }>;
-  } | null;
-  getCellHistory: (cellKey: string) => CellHistoryEntry[];
-  onNavigateHistory: (direction: 'back' | 'forward') => void;
-  onSelectionChange: (selection: Selection) => void;
-  onConfirmValidation: (rowIndex: number, columnId: string) => void;
-  onApplyValidation: (validation: {
-    rowIndex: number;
-    columnId: string;
-    suggestedValue: any;
-    originalValue: any;
-    status: string;
-    reason: string;
-  }) => void;
-  onApplyValidationValue: (rowIndex: number, columnId: string, value: any) => void;
-  onDeleteRow: (rowIndex: number) => void;
-  onDeleteRows: (rowIndexes: number[]) => void;
-  onDismissValidationSummary: () => void;
-  onReset: () => void;
-}
+export function DataEditor() {
+  const { 
+    data,
+    filename,
+    selection,
+    handleSelectionChange,
+    handleDeleteRow,
+    handleDeleteRows,
+    resetData
+  } = useData();
+  
+  const {
+    validations,
+    validationSummary,
+    setValidationSummary,
+    getCellHistory,
+    confirmValidation,
+    applyValidationValue,
+  } = useValidationContext();
+  
+  const {
+    dataHistory,
+    historyIndex,
+    handleNavigateHistory,
+    historyData
+  } = useHistoryContext();
 
-export function DataEditor({
-  data,
-  filename,
-  dataHistory,
-  historyIndex,
-  validations,
-  validationSummary,
-  getCellHistory,
-  onNavigateHistory,
-  onSelectionChange,
-  onConfirmValidation,
-  onApplyValidation,
-  onApplyValidationValue,
-  onDeleteRow,
-  onDeleteRows,
-  onDismissValidationSummary,
-  onReset,
-}: DataEditorProps) {
   const [selectedCell, setSelectedCell] = useState<{
     cellKey: string;
-    position: { x: number; y: number };
-    currentValue: any;
+    currentValue: string;
     history: CellHistoryEntry[];
+    position: { x: number; y: number };
   } | null>(null);
 
-  const handleCellClick = (rowIndex: number, columnId: string, position: { x: number; y: number }) => {
+  const handleDownloadCSV = () => {
+    if (data.length === 0) return;
+    downloadAsCSV(data, filename);
+  };
+
+  const handleCellClick = (rowIndex: number, columnId: string, event: React.MouseEvent) => {
     const cellKey = `${rowIndex}-${columnId}`;
-    const currentValue = data[rowIndex]?.[columnId];
     const history = getCellHistory(cellKey);
     
-    // Only show popup if there's history or if it's useful for UX
     if (history.length > 0) {
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
       setSelectedCell({
         cellKey,
-        position,
-        currentValue,
-        history
+        currentValue: String(data[rowIndex][columnId] || ''),
+        history,
+        position: {
+          x: rect.left,
+          y: rect.bottom + 5
+        }
       });
     }
   };
 
-  const handleDownloadCSV = () => {
-    downloadAsCSV(data, filename || 'data');
+  const handleApplyValidation = (rowIndex: number, columnId: string) => {
+    const cellKey = `${rowIndex}-${columnId}`;
+    const validation = validations.get(cellKey);
+    if (validation?.validatedValue !== undefined) {
+      applyValidationValue(rowIndex, columnId, validation.validatedValue);
+    }
   };
+
+  if (data.length === 0 && historyData.length === 0) {
+    return null;
+  }
+
+  const displayData = historyData.length > 0 ? historyData : data;
+
   return (
-    <div className="xl:col-span-3 space-y-4 min-w-0">
-      {/* Version History Component */}
-      {dataHistory.length > 1 && (
+    <div className="xl:col-span-3 space-y-4">
+      {historyIndex !== -1 && (
         <VersionHistory
-          dataHistory={dataHistory}
-          currentIndex={historyIndex}
-          onNavigate={onNavigateHistory}
+          history={dataHistory}
+          currentVersion={historyIndex}
+          onSelectVersion={handleNavigateHistory}
         />
       )}
       
-      {/* Validation Summary */}
       {validationSummary && (
         <ValidationSummary
           analysis={validationSummary.analysis}
           validationMessages={validationSummary.messages}
           rowDeletions={validationSummary.rowDeletions}
-          onApplyValue={onApplyValidationValue}
-          onDeleteRow={onDeleteRow}
-          onDeleteRows={onDeleteRows}
-          onDismiss={onDismissValidationSummary}
+          onApplyValue={applyValidationValue}
+          onDeleteRow={handleDeleteRow}
+          onDeleteRows={handleDeleteRows}
+          onDismiss={() => setValidationSummary(null)}
         />
       )}
       
@@ -138,10 +122,11 @@ export function DataEditor({
             </button>
             
             <button
-              onClick={onReset}
-              className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+              onClick={resetData}
+              className="px-3 py-2 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors"
+              title="Reset all data"
             >
-              Upload New File
+              Reset
             </button>
           </div>
         </div>
@@ -149,25 +134,12 @@ export function DataEditor({
         <div className="overflow-hidden">
           <DataTableErrorBoundary>
             <DataTable 
-              data={data} 
+              data={displayData} 
               validations={validations}
-              onSelectionChange={onSelectionChange}
-              onConfirmValidation={onConfirmValidation}
+              onSelectionChange={handleSelectionChange}
+              onConfirmValidation={confirmValidation}
               onCellClick={handleCellClick}
-              onApplyValidation={(rowIndex, columnId) => {
-                const cellKey = `${rowIndex}-${columnId}`;
-                const validation = validations.get(cellKey);
-                if (validation?.validatedValue !== undefined) {
-                  onApplyValidation({
-                    rowIndex,
-                    columnId,
-                    suggestedValue: validation.validatedValue,
-                    originalValue: validation.originalValue,
-                    status: validation.status as any,
-                    reason: validation.notes || ''
-                  });
-                }
-              }}
+              onApplyValidation={handleApplyValidation}
             />
           </DataTableErrorBoundary>
         </div>

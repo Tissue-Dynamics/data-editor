@@ -1,186 +1,114 @@
 import React, { useState } from 'react';
-import { Send, Sparkles, AlertCircle, Loader2, CheckCircle, XCircle, DollarSign } from 'lucide-react';
-import type { Selection } from '../../types/data';
-import type { TaskExample, Task, ClaudeAnalysisResult } from '../../types/tasks';
 import { TaskExamples } from './TaskExamples';
+import { TaskProgress } from '../TaskProgress/TaskProgress';
+import { AlertCircle } from 'lucide-react';
+import { useData, useTask } from '../../contexts/AppProviders';
 
-interface TaskPanelProps {
-  selection: Selection;
-  onExecuteTask: (prompt: string, options?: { batchMode?: boolean }) => void;
-  isLoading?: boolean;
-  currentTask?: Task | null;
-  error?: string | null;
-}
-
-export const TaskPanel: React.FC<TaskPanelProps> = ({
-  selection,
-  onExecuteTask,
-  isLoading = false,
-  currentTask,
-  error
-}) => {
-  const [prompt, setPrompt] = useState('');
-  const [batchMode, setBatchMode] = useState(false);
-
-  const hasSelection = selection.rows.length > 0 || selection.columns.length > 0;
+export function TaskPanel() {
+  const { selection } = useData();
+  const { 
+    currentTask,
+    isTaskRunning: isLoading,
+    taskError: error,
+    taskSteps,
+    handleExecuteTask: onExecuteTask
+  } = useTask();
   
-  const handleExecute = () => {
-    if (!prompt.trim() || !hasSelection) return;
-    onExecuteTask(prompt, { batchMode });
-    setPrompt('');
+  const [prompt, setPrompt] = useState('');
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [selectedExample, setSelectedExample] = useState<{ label: string; prompt: string } | null>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim() || isLoading) return;
+    onExecuteTask(prompt.trim());
   };
 
-  const handleExampleClick = (example: TaskExample) => {
+  const handleSelectExample = (example: { label: string; prompt: string }) => {
+    setSelectedExample(example);
     setPrompt(example.prompt);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleExecute();
-    }
-  };
+  const rowCount = selection.rows.length;
+  const columnCount = selection.columns.length;
+  const cellCount = selection.cells?.length || 0;
 
   return (
-    <div className="bg-white rounded-lg shadow p-4 space-y-4 h-full max-h-[80vh] xl:max-h-[600px] overflow-y-auto">
-      <div className="flex items-center gap-2">
-        <Sparkles className="w-5 h-5 text-purple-600 flex-shrink-0" />
-        <h3 className="text-lg font-semibold truncate">AI Assistant</h3>
+    <div className="bg-white rounded-lg shadow p-4">
+      <h3 className="text-lg font-semibold mb-3">AI Data Assistant</h3>
+      
+      {/* Selection info */}
+      <div className="mb-3 text-sm text-gray-600">
+        {rowCount > 0 || columnCount > 0 || cellCount > 0 ? (
+          <div>
+            Selected: 
+            {rowCount > 0 && ` ${rowCount} row${rowCount !== 1 ? 's' : ''}`}
+            {columnCount > 0 && ` ${columnCount} column${columnCount !== 1 ? 's' : ''}`}
+            {cellCount > 0 && ` ${cellCount} cell${cellCount !== 1 ? 's' : ''}`}
+          </div>
+        ) : (
+          <div>No selection - AI will analyze all data</div>
+        )}
       </div>
 
-      {!hasSelection && (
-        <div className="flex items-center gap-2 p-3 bg-amber-50 text-amber-800 rounded-md text-sm">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>Select rows or columns to run AI tasks</span>
+      {/* Task form */}
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe what you want to do with the data..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            rows={3}
+            disabled={isLoading}
+          />
         </div>
-      )}
-
-      {hasSelection && (
-        <div className="space-y-2">
-          <div className="text-sm text-gray-600">
-            Selected: {selection.rows.length} rows, {selection.columns.length} columns
-          </div>
-          
-          {/* Batch Mode Toggle */}
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={batchMode}
-                onChange={(e) => setBatchMode(e.target.checked)}
-                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-              />
-              <span className="text-sm text-gray-700">Cost-saving mode</span>
-            </label>
-            <div className="flex items-center gap-1">
-              <DollarSign className="w-3 h-3 text-green-600" />
-              <span className="text-xs text-green-600 font-medium">Cheaper</span>
-            </div>
-          </div>
-          
-          {batchMode && (
-            <div className="text-xs text-green-600 bg-green-50 p-2 rounded">
-              Uses faster model with limited tools to reduce costs. Best for simple validation tasks.
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="relative">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Describe what you want to do with the selected data... Claude will figure out the best approach!"
-          className="w-full p-3 pr-12 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-          rows={3}
-          disabled={!hasSelection || isLoading}
-        />
+        
         <button
-          onClick={handleExecute}
-          disabled={!hasSelection || !prompt.trim() || isLoading}
-          className={`absolute bottom-3 right-3 p-2 rounded-md transition-colors ${
-            hasSelection && prompt.trim() && !isLoading
-              ? 'bg-purple-600 text-white hover:bg-purple-700'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-          }`}
+          type="submit"
+          disabled={!prompt.trim() || isLoading}
+          className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
         >
-          <Send className="w-4 h-4" />
+          {isLoading ? 'Processing...' : 'Run Task'}
         </button>
-      </div>
+      </form>
 
-      {/* Task Status Display */}
-      {isLoading && (
-        <div className="flex items-center gap-2 p-3 bg-blue-50 text-blue-700 rounded-md text-sm">
-          <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-          <span>Running task...</span>
-        </div>
-      )}
-      
+      {/* Error display */}
       {error && (
-        <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-md text-sm">
-          <XCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-      
-      {currentTask && currentTask.status === 'completed' && (
-        <div className="p-3 bg-green-50 rounded-md text-sm">
-          <div className="flex items-center gap-2 text-green-700 mb-2">
-            <CheckCircle className="w-4 h-4 flex-shrink-0" />
-            <span className="font-medium">Task completed</span>
-          </div>
-          {currentTask.result && typeof currentTask.result === 'object' && 'analysis' in currentTask.result && (
-            <div className="text-green-600">
-              <p className="text-xs text-green-500 mb-1">
-                Analysis method: {(currentTask.result as ClaudeAnalysisResult).method}
-              </p>
-              <pre className="whitespace-pre-wrap text-sm bg-green-100 p-2 rounded">
-                {(currentTask.result as ClaudeAnalysisResult).analysis}
-              </pre>
-              {(currentTask.result as ClaudeAnalysisResult).validations && (
-                <div className="mt-2">
-                  <p className="text-xs text-green-500 mb-1">Validations found:</p>
-                  <div className="space-y-1">
-                    {(currentTask.result as ClaudeAnalysisResult).validations!.map((validation, index) => (
-                      <div key={index} className="text-xs bg-green-100 p-1 rounded">
-                        <span className="font-medium">Row {validation.rowIndex}, {validation.columnId}:</span>{' '}
-                        <span className={validation.status === 'error' ? 'text-red-600' : validation.status === 'warning' ? 'text-yellow-600' : 'text-green-600'}>
-                          {validation.status}
-                        </span>
-                        {validation.reason && <span> - {validation.reason}</span>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          {currentTask.result && typeof currentTask.result === 'string' && (
-            <p className="text-green-600">{currentTask.result}</p>
-          )}
-        </div>
-      )}
-      
-      {currentTask && currentTask.status === 'failed' && (
-        <div className="p-3 bg-red-50 rounded-md text-sm">
-          <div className="flex items-center gap-2 text-red-700 mb-2">
-            <XCircle className="w-4 h-4 flex-shrink-0" />
-            <span className="font-medium">Task failed</span>
-          </div>
-          {currentTask.result && typeof currentTask.result === 'object' && 'error' in currentTask.result && (
-            <p className="text-red-600">{currentTask.result.error}</p>
-          )}
-          {typeof currentTask.result === 'string' && (
-            <p className="text-red-600">{currentTask.result}</p>
-          )}
+        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-md flex items-start gap-2">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-red-700">{error}</div>
         </div>
       )}
 
-      <TaskExamples 
-        onExampleClick={handleExampleClick}
-        currentSelection={selection}
-      />
+      {/* Task Progress */}
+      {(currentTask || taskSteps.length > 0) && (
+        <div className="mt-4">
+          <TaskProgress steps={taskSteps} />
+        </div>
+      )}
+
+      {/* Examples section */}
+      <div className="mt-4 border-t pt-4">
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center justify-between text-sm font-medium text-gray-700 hover:text-gray-900"
+        >
+          <span>Example Tasks</span>
+          <span className="text-gray-400">{isExpanded ? '−' : '+'}</span>
+        </button>
+        
+        {isExpanded && (
+          <div className="mt-2">
+            <TaskExamples 
+              onSelectExample={handleSelectExample}
+              selectedExample={selectedExample}
+              hasRowSelection={rowCount > 0}
+              hasColumnSelection={columnCount > 0}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
-};
+}
