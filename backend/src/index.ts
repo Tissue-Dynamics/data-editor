@@ -34,52 +34,94 @@ app.get('/health', (c) => {
 app.get('/api/tasks/:taskId/stream', async (c) => {
   const taskId = c.req.param('taskId');
   
-  // Set up Server-Sent Events
-  c.header('Content-Type', 'text/event-stream');
-  c.header('Cache-Control', 'no-cache');
-  c.header('Connection', 'keep-alive');
-  
-  return c.streamText(async (stream) => {
-    // Send connection confirmation
-    stream.writeln(`data: ${JSON.stringify({ type: 'connected', taskId })}\n`);
-
-    // Register for real-time events
-    const unsubscribe = TaskStreaming.addStream(taskId, (event) => {
-      stream.writeln(`data: ${JSON.stringify({
-        type: 'task_event',
-        event: event
-      })}\n`);
-    });
-
-    // Also monitor task completion
-    const pollCompletion = setInterval(async () => {
-      const task = tasks.get(taskId);
-      if (!task) {
-        stream.writeln(`data: ${JSON.stringify({ type: 'error', message: 'Task not found' })}\n`);
-        clearInterval(pollCompletion);
-        unsubscribe();
-        return;
-      }
-
-      if (task.status === 'completed' || task.status === 'failed') {
-        stream.writeln(`data: ${JSON.stringify({
-          type: 'task_complete',
-          status: task.status,
-          result: task.result,
-          taskId: taskId
-        })}\n`);
-        clearInterval(pollCompletion);
-        unsubscribe();
-        TaskStreaming.removeTask(taskId);
-      }
-    }, 1000);
-
-    // Clean up on stream close
-    stream.onAbort(() => {
-      clearInterval(pollCompletion);
-      unsubscribe();
-    });
+  // Set up Server-Sent Events headers
+  const headers = new Headers({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET',
+    'Access-Control-Allow-Headers': 'Content-Type'
   });
+
+  // Create a readable stream for SSE
+  let controller: ReadableStreamDefaultController<Uint8Array>;
+  const encoder = new TextEncoder();
+  
+  const stream = new ReadableStream({
+    start(c) {
+      controller = c;
+      
+      // Send connection confirmation
+      const connectionMsg = `data: ${JSON.stringify({ type: 'connected', taskId })}\n\n`;
+      controller.enqueue(encoder.encode(connectionMsg));
+
+      // Register for real-time events
+      const unsubscribe = TaskStreaming.addStream(taskId, (event) => {
+        try {
+          const eventMsg = `data: ${JSON.stringify({
+            type: 'task_event',
+            event: event
+          })}\n\n`;
+          controller.enqueue(encoder.encode(eventMsg));
+        } catch (error) {
+          console.error('Stream write error:', error);
+        }
+      });
+
+      // Monitor task completion
+      const pollCompletion = setInterval(async () => {
+        const task = tasks.get(taskId);
+        if (!task) {
+          try {
+            const errorMsg = `data: ${JSON.stringify({ type: 'error', message: 'Task not found' })}\n\n`;
+            controller.enqueue(encoder.encode(errorMsg));
+          } catch (error) {
+            console.error('Stream write error:', error);
+          }
+          clearInterval(pollCompletion);
+          unsubscribe();
+          controller.close();
+          return;
+        }
+
+        if (task.status === 'completed' || task.status === 'failed') {
+          try {
+            const completeMsg = `data: ${JSON.stringify({
+              type: 'task_complete',
+              status: task.status,
+              result: task.result,
+              taskId: taskId
+            })}\n\n`;
+            controller.enqueue(encoder.encode(completeMsg));
+          } catch (error) {
+            console.error('Stream write error:', error);
+          }
+          clearInterval(pollCompletion);
+          unsubscribe();
+          TaskStreaming.removeTask(taskId);
+          controller.close();
+        }
+      }, 1000);
+
+      // Store cleanup function for potential later use
+      (c as any).cleanup = () => {
+        clearInterval(pollCompletion);
+        unsubscribe();
+        try {
+          controller.close();
+        } catch (error) {
+          // Stream already closed
+        }
+      };
+    },
+    cancel() {
+      // Cleanup when client disconnects
+      console.log(`Stream cancelled for task ${taskId}`);
+    }
+  });
+
+  return new Response(stream, { headers });
 });
 
 // Main task execution endpoint
