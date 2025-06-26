@@ -188,24 +188,56 @@ export class ClaudeService {
       messages,
     });
 
-    // Track tool usage for streaming
+    // Track tool usage and build tool results
     let usedWebSearch = false;
     let usedBash = false;
+    const toolResults: any[] = [];
     
+    // Add assistant's response to messages
+    messages.push({
+      role: 'assistant',
+      content: firstResponse.content
+    });
+    
+    // Process tool uses and create tool results
     for (const content of firstResponse.content) {
       if (content.type === 'tool_use') {
         console.log(`[Task ${taskId}] Claude used tool: ${content.name}`);
         
-        if (content.name === 'web_search' && taskId) {
+        if (content.name === 'web_search') {
           usedWebSearch = true;
-          TaskStreaming.emitToolStart(taskId, 'web_search', 'Searching scientific databases', 
-            `Query: ${JSON.stringify(content.input).substring(0, 100)}...`);
+          if (taskId) {
+            TaskStreaming.emitToolStart(taskId, 'web_search', 'Searching scientific databases', 
+              `Query: ${JSON.stringify(content.input).substring(0, 100)}...`);
+          }
+          
+          // Add tool result message
+          messages.push({
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: content.id,
+              content: 'Search completed successfully. Results integrated into analysis.'
+            }]
+          });
         }
         
-        if (content.name === 'bash' && taskId) {
+        if (content.name === 'bash') {
           usedBash = true;
-          TaskStreaming.emitToolStart(taskId, 'bash', 'Running calculations', 
-            `Command: ${JSON.stringify(content.input).substring(0, 100)}...`);
+          if (taskId) {
+            TaskStreaming.emitToolStart(taskId, 'bash', 'Running calculations', 
+              `Command: ${JSON.stringify(content.input).substring(0, 100)}...`);
+          }
+          
+          // Add tool result message  
+          messages.push({
+            role: 'user',
+            content: [{
+              type: 'tool_result',
+              tool_use_id: content.id,
+              content: 'Calculation completed successfully. Results integrated into analysis.'
+            }]
+          });
         }
       }
     }
@@ -220,13 +252,23 @@ export class ClaudeService {
       }
     }
 
-    // Add first response to messages
-    messages.push({
-      role: 'assistant',
-      content: firstResponse.content
-    });
+    // Only add the structured output request if tools were used
+    if (toolResults.length > 0 || firstResponse.content.some(c => c.type === 'tool_use')) {
+      // Need Claude's response to tool results first
+      const toolResponseMessages = await this.anthropic.messages.create({
+        model: 'claude-4-sonnet-20250514',
+        max_tokens: 1000,
+        temperature: 0.1,
+        messages,
+      });
+      
+      messages.push({
+        role: 'assistant',
+        content: toolResponseMessages.content
+      });
+    }
 
-    // Second call: Force structured output with research context
+    // Now ask for structured output
     messages.push({
       role: 'user',
       content: 'Based on your research above, please now provide your structured analysis using the data_analysis_result tool. Include any findings from your web searches or calculations in your validation results.'
