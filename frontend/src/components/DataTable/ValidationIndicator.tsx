@@ -1,6 +1,6 @@
 import React from 'react';
 import { Check, AlertTriangle, X, Loader2 } from 'lucide-react';
-import { ValidationState } from '../../types/validation';
+import type { ValidationState } from '../../types/validation';
 
 interface ValidationIndicatorProps {
   state: ValidationState;

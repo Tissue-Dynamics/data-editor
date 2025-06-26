@@ -5,12 +5,12 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   flexRender,
-  ColumnDef,
-  SortingState,
-  RowSelectionState,
+  type ColumnDef,
+  type SortingState,
+  type RowSelectionState,
 } from '@tanstack/react-table';
-import { DataRow, Selection } from '../../types/data';
-import { ValidationState } from '../../types/validation';
+import type { DataRow, Selection } from '../../types/data';
+import type { ValidationState } from '../../types/validation';
 import { ValidationIndicator } from './ValidationIndicator';
 
 interface DataTableProps {
@@ -59,7 +59,7 @@ export const DataTable: React.FC<DataTableProps> = ({
       cols.push({
         id: key,
         accessorKey: key,
-        header: ({ column }) => (
+        header: () => (
           <div
             className={`cursor-pointer select-none ${
               columnSelection.has(key) ? 'bg-blue-100' : ''

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { FileUploader } from './components/Upload/FileUploader';
 import { DataTable } from './components/DataTable/DataTable';
-import { DataRow, DataColumn, Selection } from './types/data';
-import { ValidationState } from './types/validation';
+import type { DataRow, Selection } from './types/data';
+import type { ValidationState } from './types/validation';
 
 function App() {
   const [data, setData] = useState<DataRow[]>([]);

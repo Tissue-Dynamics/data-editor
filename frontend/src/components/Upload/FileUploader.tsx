@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { Upload } from 'lucide-react';
 import Papa from 'papaparse';
-import { DataRow } from '../../types/data';
+import type { DataRow } from '../../types/data';
 
 interface FileUploaderProps {
   onDataLoad: (data: DataRow[], filename: string) => void;
@@ -17,10 +17,11 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onDataLoad }) => {
         complete: (result) => {
           if (result.data && result.data.length > 0) {
             const headers = result.data[0] as string[];
-            const rows = result.data.slice(1).map((row: any) => {
+            const rows = result.data.slice(1).map((row: unknown) => {
               const dataRow: DataRow = {};
+              const rowArray = row as string[];
               headers.forEach((header, index) => {
-                dataRow[header] = row[index] || null;
+                dataRow[header] = rowArray[index] || null;
               });
               return dataRow;
             }).filter(row => Object.keys(row).length > 0);
