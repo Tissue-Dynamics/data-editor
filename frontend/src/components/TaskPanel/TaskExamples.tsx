@@ -11,33 +11,39 @@ interface TaskExamplesProps {
 const examples: TaskExample[] = [
   {
     label: 'Fill Missing Values',
-    prompt: 'Fill in missing values for these rows',
+    prompt: 'Fill in the missing values in these rows',
     requiresRowSelection: true,
     icon: 'Search'
   },
   {
     label: 'Validate Data',
-    prompt: 'Take 20 of these rows and double check that they are correct',
+    prompt: 'Check if these values are correct and flag any issues',
     requiresRowSelection: true,
     icon: 'CheckCircle'
   },
   {
-    label: 'Column Test',
-    prompt: 'Write a test to ensure that these values are between 0-100µM',
+    label: 'Find Duplicates',
+    prompt: 'Find and highlight any duplicate entries in this data',
+    requiresRowSelection: true,
+    icon: 'FileSearch'
+  },
+  {
+    label: 'Standardize Format',
+    prompt: 'Standardize the format of values in this column',
     requiresColumnSelection: true,
     icon: 'TestTube'
   },
   {
-    label: 'Unit Conversion',
-    prompt: 'Create a new column that converts ng/mL to µM based on molecular weight',
+    label: 'Calculate Statistics',
+    prompt: 'Calculate mean, median, and standard deviation for this column',
     requiresColumnSelection: true,
     icon: 'Calculator'
   },
   {
-    label: 'Research Values',
-    prompt: 'Research and verify the company names in these rows',
+    label: 'Clean Data',
+    prompt: 'Clean and normalize the data in these cells',
     requiresRowSelection: true,
-    icon: 'FileSearch'
+    icon: 'Lightbulb'
   }
 ];
 
@@ -69,7 +75,7 @@ export const TaskExamples: React.FC<TaskExamplesProps> = ({
     <div className="space-y-2">
       <div className="text-xs text-gray-500 uppercase tracking-wide">Example Tasks</div>
       <div className="space-y-1">
-        {availableExamples.slice(0, 3).map((example, index) => {
+        {availableExamples.slice(0, 4).map((example, index) => {
           const Icon = iconMap[example.icon as keyof typeof iconMap] || Lightbulb;
           
           return (
