@@ -43,16 +43,20 @@ CREATE TABLE tasks (
 );
 
 -- Data Snapshots Table
--- Tracks data fingerprints for cache invalidation
+-- Stores version history of data for each session
 CREATE TABLE data_snapshots (
-  hash TEXT PRIMARY KEY,
-  row_count INTEGER NOT NULL,
-  column_count INTEGER NOT NULL,
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  data TEXT NOT NULL, -- Full data as JSON
+  data_hash TEXT NOT NULL,
   column_names TEXT NOT NULL, -- JSON array of column names
-  sample_data TEXT NOT NULL, -- First 3 rows as JSON for verification
-  schema_fingerprint TEXT, -- Hash of column types and structure
+  change_description TEXT,
   created_at INTEGER NOT NULL,
-  last_accessed_at INTEGER NOT NULL
+  created_by TEXT, -- 'user' or 'ai'
+  
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  UNIQUE(session_id, version)
 );
 
 -- Validation Cache Table
@@ -74,14 +78,17 @@ CREATE TABLE validation_cache (
 -- Tracks user sessions for data continuity
 CREATE TABLE sessions (
   id TEXT PRIMARY KEY,
-  user_fingerprint TEXT, -- Browser fingerprint for anonymous users
-  current_data_hash TEXT,
-  current_filename TEXT,
+  name TEXT NOT NULL, -- User-provided session name
+  description TEXT,
+  file_name TEXT,
+  file_type TEXT,
+  row_count INTEGER NOT NULL DEFAULT 0,
+  column_count INTEGER NOT NULL DEFAULT 0,
+  current_version INTEGER NOT NULL DEFAULT 1,
+  is_active BOOLEAN DEFAULT TRUE,
   created_at INTEGER NOT NULL,
-  last_activity_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  
-  FOREIGN KEY (current_data_hash) REFERENCES data_snapshots(hash)
+  updated_at INTEGER NOT NULL,
+  last_activity_at INTEGER NOT NULL
 );
 
 -- Performance Indexes
@@ -96,33 +103,24 @@ CREATE INDEX idx_tasks_created_at ON tasks(created_at);
 CREATE INDEX idx_tasks_user_session ON tasks(user_id, session_id);
 
 CREATE INDEX idx_data_snapshots_created_at ON data_snapshots(created_at);
-CREATE INDEX idx_data_snapshots_last_accessed ON data_snapshots(last_accessed_at);
+CREATE INDEX idx_data_snapshots_session ON data_snapshots(session_id);
 
 CREATE INDEX idx_validation_cache_pattern ON validation_cache(data_pattern_hash);
 CREATE INDEX idx_validation_cache_prompt ON validation_cache(prompt_hash);
 CREATE INDEX idx_validation_cache_accessed ON validation_cache(last_accessed_at);
 
-CREATE INDEX idx_sessions_fingerprint ON sessions(user_fingerprint);
-CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+CREATE INDEX idx_sessions_is_active ON sessions(is_active);
 CREATE INDEX idx_sessions_activity ON sessions(last_activity_at);
 
 -- Cleanup triggers for old data
 -- Automatically clean up old sessions and cache entries
-
--- Trigger to update last_accessed_at on data_snapshots
-CREATE TRIGGER update_snapshot_access 
-  AFTER UPDATE ON data_snapshots
-  BEGIN
-    UPDATE data_snapshots 
-    SET last_accessed_at = unixepoch()
-    WHERE hash = NEW.hash;
-  END;
 
 -- Trigger to update session activity
 CREATE TRIGGER update_session_activity
   AFTER INSERT ON tasks
   BEGIN
     UPDATE sessions 
-    SET last_activity_at = unixepoch()
+    SET last_activity_at = unixepoch(),
+        updated_at = unixepoch()
     WHERE id = NEW.session_id;
   END;

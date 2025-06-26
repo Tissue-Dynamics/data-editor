@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
 import { createClaudeService } from './services/claude';
+import { createClaudeBatchService } from './services/claude-batch';
 import { TaskStreaming } from './utils/streaming';
+import { SessionService } from './db/sessions';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +30,83 @@ app.use('/*', cors({
 // Health check endpoint
 app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Session endpoints
+app.get('/api/sessions', async (c) => {
+  try {
+    const sessionService = new SessionService(c.env.DB);
+    const sessions = await sessionService.listSessions();
+    return c.json({ sessions });
+  } catch (error) {
+    console.error('Failed to list sessions:', error);
+    return c.json({ error: 'Failed to list sessions' }, 500);
+  }
+});
+
+app.post('/api/sessions', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { name, description, file_name, file_type, data, column_names } = body;
+    
+    if (!name || !data || !column_names) {
+      return c.json({ error: 'Missing required fields' }, 400);
+    }
+    
+    const sessionService = new SessionService(c.env.DB);
+    const session = await sessionService.createSession({
+      name,
+      description,
+      file_name,
+      file_type,
+      data,
+      column_names
+    });
+    
+    return c.json({ session });
+  } catch (error) {
+    console.error('Failed to create session:', error);
+    return c.json({ error: 'Failed to create session' }, 500);
+  }
+});
+
+app.get('/api/sessions/:sessionId', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const sessionService = new SessionService(c.env.DB);
+    
+    const session = await sessionService.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    
+    const snapshot = await sessionService.getSessionData(sessionId);
+    if (!snapshot) {
+      return c.json({ error: 'Session data not found' }, 404);
+    }
+    
+    return c.json({
+      session,
+      data: JSON.parse(snapshot.data),
+      column_names: JSON.parse(snapshot.column_names)
+    });
+  } catch (error) {
+    console.error('Failed to get session:', error);
+    return c.json({ error: 'Failed to get session' }, 500);
+  }
+});
+
+app.delete('/api/sessions/:sessionId', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const sessionService = new SessionService(c.env.DB);
+    
+    await sessionService.deleteSession(sessionId);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Failed to delete session:', error);
+    return c.json({ error: 'Failed to delete session' }, 500);
+  }
 });
 
 // Streaming endpoint for real-time task updates
@@ -124,7 +203,56 @@ app.get('/api/tasks/:taskId/stream', async (c) => {
   return new Response(stream, { headers });
 });
 
-// Main task execution endpoint
+// Batch task execution endpoint (for rate limit handling)
+app.post('/api/tasks/batch', async (c) => {
+  try {
+    const body = await c.req.json();
+    const { tasks } = body; // Array of task requests
+    
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      return c.json({ error: 'Tasks array is required' }, 400);
+    }
+    
+    const batchService = createClaudeBatchService(c.env);
+    
+    // Prepare batch requests
+    const batchRequests = await batchService.prepareBatchRequests(tasks.map(task => ({
+      id: crypto.randomUUID(),
+      prompt: task.prompt,
+      data: task.data,
+      selectedRows: task.selectedRows,
+      selectedColumns: task.selectedColumns
+    })));
+    
+    // Create batch
+    const batchId = await batchService.createBatch(batchRequests);
+    
+    return c.json({
+      batchId,
+      taskCount: tasks.length,
+      message: 'Batch created successfully. Poll /api/batches/{batchId} for status.'
+    });
+  } catch (error) {
+    console.error('Failed to create batch:', error);
+    return c.json({ error: 'Failed to create batch' }, 500);
+  }
+});
+
+// Get batch status
+app.get('/api/batches/:batchId', async (c) => {
+  try {
+    const batchId = c.req.param('batchId');
+    const batchService = createClaudeBatchService(c.env);
+    
+    const status = await batchService.getBatchStatus(batchId);
+    return c.json(status);
+  } catch (error) {
+    console.error('Failed to get batch status:', error);
+    return c.json({ error: 'Failed to get batch status' }, 500);
+  }
+});
+
+// Main task execution endpoint (single task)
 app.post('/api/tasks/execute', async (c) => {
   try {
     const body = await c.req.json();

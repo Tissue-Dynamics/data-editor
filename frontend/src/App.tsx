@@ -6,6 +6,7 @@ import { TaskProgress } from './components/TaskProgress/TaskProgress';
 import { VersionHistory } from './components/VersionHistory/VersionHistory';
 import { ValidationLegend } from './components/ValidationLegend/ValidationLegend';
 import { ValidationSummary } from './components/ValidationSummary/ValidationSummary';
+import { SessionsList, type SessionInfo } from './components/SessionsList/SessionsList';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
 import type { Task, ClaudeAnalysisResult } from './types/tasks';
@@ -21,6 +22,8 @@ interface TaskStep {
 }
 
 function App() {
+  const [currentSession, setCurrentSession] = useState<SessionInfo | null>(null);
+  const [showSessionsList, setShowSessionsList] = useState(true);
   const [data, setData] = useState<DataRow[]>([]);
   const [originalData, setOriginalData] = useState<DataRow[]>([]); // Keep original for history
   const [dataHistory, setDataHistory] = useState<DataRow[][]>([]); // Version history
@@ -48,17 +51,55 @@ function App() {
     }>;
   } | null>(null);
 
-  const handleDataLoad = (loadedData: DataRow[], fileName: string) => {
-    setData(loadedData);
-    setOriginalData(loadedData); // Keep original
-    setDataHistory([loadedData]); // Initialize history
-    setHistoryIndex(0);
-    setFilename(fileName);
-    // Clear previous validations when new data is loaded
-    setValidations(new Map());
-    setCurrentTask(null);
-    setTaskError(null);
-    setTaskSteps([]);
+  const handleDataLoad = async (loadedData: DataRow[], fileName: string) => {
+    // Create a new session when data is loaded
+    try {
+      const columnNames = Object.keys(loadedData[0] || {});
+      const response = await api.createSession({
+        name: fileName || 'Untitled Session',
+        description: `Imported from ${fileName}`,
+        file_name: fileName,
+        file_type: fileName.split('.').pop() || 'unknown',
+        data: loadedData,
+        column_names: columnNames
+      });
+      
+      setCurrentSession(response.session);
+      setShowSessionsList(false);
+      setData(loadedData);
+      setOriginalData(loadedData);
+      setDataHistory([loadedData]);
+      setHistoryIndex(0);
+      setFilename(fileName);
+      setValidations(new Map());
+      setCurrentTask(null);
+      setTaskError(null);
+      setTaskSteps([]);
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      alert('Failed to create session. Please try again.');
+    }
+  };
+
+  const loadSession = async (sessionId: string) => {
+    try {
+      const response = await api.getSession(sessionId);
+      
+      setCurrentSession(response.session);
+      setData(response.data);
+      setOriginalData(response.data);
+      setDataHistory([response.data]);
+      setHistoryIndex(0);
+      setFilename(response.session.file_name || 'Session Data');
+      setValidations(new Map());
+      setCurrentTask(null);
+      setTaskError(null);
+      setTaskSteps([]);
+      setShowSessionsList(false);
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      alert('Failed to load session. Please try again.');
+    }
   };
 
   const saveToHistory = useCallback((newData: DataRow[]) => {
@@ -496,14 +537,34 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8 max-w-full">
-        <h1 className="text-3xl font-bold mb-8">Data Analysis Tool</h1>
-        
-        {data.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8">
-            <FileUploader onDataLoad={handleDataLoad} />
+      {showSessionsList ? (
+        <SessionsList
+          onSessionSelect={loadSession}
+          onNewSession={() => setShowSessionsList(false)}
+        />
+      ) : (
+        <div className="container mx-auto px-4 py-8 max-w-full">
+          <div className="flex items-center justify-between mb-8">
+            <h1 className="text-3xl font-bold">Data Analysis Tool</h1>
+            {currentSession && (
+              <button
+                onClick={() => {
+                  setShowSessionsList(true);
+                  setCurrentSession(null);
+                  setData([]);
+                }}
+                className="text-sm text-gray-600 hover:text-gray-800"
+              >
+                ← Back to Sessions
+              </button>
+            )}
           </div>
-        ) : (
+          
+          {data.length === 0 ? (
+            <div className="bg-white rounded-lg shadow p-8">
+              <FileUploader onDataLoad={handleDataLoad} />
+            </div>
+          ) : (
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
             <div className="xl:col-span-3 space-y-4 min-w-0">
               {/* Version History Component */}
@@ -603,6 +664,7 @@ function App() {
           </div>
         )}
       </div>
+    )}
     </div>
   );
 }

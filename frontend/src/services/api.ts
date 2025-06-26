@@ -1,4 +1,5 @@
 import type { TaskRequest, TaskResponse } from '../types';
+import type { SessionInfo } from '../components/SessionsList/SessionsList';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
@@ -49,6 +50,59 @@ export const api = {
   async checkHealth(): Promise<{ status: string; timestamp: string }> {
     const response = await fetch(`${API_URL}/health`, {
       method: 'GET',
+    });
+    return handleResponse(response);
+  },
+
+  // Session management
+  async listSessions(): Promise<{ sessions: SessionInfo[] }> {
+    const response = await fetch(`${API_URL}/api/sessions`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return handleResponse(response);
+  },
+
+  async createSession(params: {
+    name: string;
+    description?: string;
+    file_name?: string;
+    file_type?: string;
+    data: any[];
+    column_names: string[];
+  }): Promise<{ session: SessionInfo }> {
+    const response = await fetch(`${API_URL}/api/sessions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+    return handleResponse(response);
+  },
+
+  async getSession(sessionId: string): Promise<{
+    session: SessionInfo;
+    data: any[];
+    column_names: string[];
+  }> {
+    const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return handleResponse(response);
+  },
+
+  async deleteSession(sessionId: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
     return handleResponse(response);
   },
