@@ -496,17 +496,22 @@ function App() {
               </div>
               
               {/* Task Progress Container */}
-              {(isTaskRunning || taskSteps.length > 0 || validations.size > 0) && (
-                <TaskProgress
-                  taskId={currentTask?.id || ''}
-                  prompt={currentTask?.prompt || ''}
-                  steps={taskSteps}
-                  isRunning={isTaskRunning}
-                  validationCount={Array.from(validations.values()).filter(v => v.status === 'auto_updated' || v.status === 'conflict').length}
-                  onConfirmAll={confirmAllValidations}
-                  onDismissAll={dismissAllValidations}
-                />
-              )}
+              {(() => {
+                const pendingValidations = Array.from(validations.values()).filter(v => v.status === 'auto_updated' && !v.confirmed).length;
+                const showProgress = isTaskRunning || taskSteps.length > 0 || pendingValidations > 0;
+                
+                return showProgress ? (
+                  <TaskProgress
+                    taskId={currentTask?.id || ''}
+                    prompt={currentTask?.prompt || ''}
+                    steps={taskSteps}
+                    isRunning={isTaskRunning}
+                    validationCount={pendingValidations}
+                    onConfirmAll={pendingValidations > 0 ? confirmAllValidations : undefined}
+                    onDismissAll={pendingValidations > 0 ? dismissAllValidations : undefined}
+                  />
+                ) : null;
+              })()}
             </div>
             
             <div className="xl:col-span-1 xl:sticky xl:top-4 h-fit">

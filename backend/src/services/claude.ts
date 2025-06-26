@@ -177,7 +177,7 @@ export class ClaudeService {
           name: "bash"
         }
       ],
-      tool_choice: { type: "tool", name: "data_analysis_result" },
+      tool_choice: { type: "auto" },
       messages: [
         {
           role: 'user',
@@ -186,35 +186,29 @@ export class ClaudeService {
       ],
     });
 
-    // Check if Claude used tools and emit appropriate events
+    // Process Claude's response and track tool usage
     let usedWebSearch = false;
     let usedBash = false;
+    let analysisResult: any = null;
     
     for (const content of response.content) {
       if (content.type === 'tool_use') {
+        console.log(`[Task ${taskId}] Claude used tool: ${content.name}`);
+        
         if (content.name === 'web_search' && taskId) {
           usedWebSearch = true;
-          TaskStreaming.emitToolComplete(taskId, 'web_search', 'Scientific database search completed');
-          TaskStreaming.emitToolStart(taskId, 'bash', 'Running molecular property calculations', 
-            'Calculating descriptors and validating SMILES structures');
+          TaskStreaming.emitToolStart(taskId, 'web_search', 'Searching scientific databases', 
+            `Query: ${JSON.stringify(content.input).substring(0, 100)}...`);
         }
+        
         if (content.name === 'bash' && taskId) {
           usedBash = true;
-          TaskStreaming.emitToolComplete(taskId, 'bash', 'Molecular calculations completed');
+          TaskStreaming.emitToolStart(taskId, 'bash', 'Running calculations', 
+            `Command: ${JSON.stringify(content.input).substring(0, 100)}...`);
         }
+        
         if (content.name === 'data_analysis_result') {
-          if (taskId) {
-            if (!usedWebSearch) {
-              TaskStreaming.emitToolComplete(taskId, 'web_search', 'Analysis completed without web search');
-            }
-            if (!usedBash) {
-              TaskStreaming.emitToolComplete(taskId, 'bash', 'Analysis completed without additional calculations');
-            }
-            TaskStreaming.emitToolStart(taskId, 'structured_output', 'Generating validation results', 
-              'Analyzing patterns and formatting structured output');
-          }
-          
-          const result = content.input as {
+          analysisResult = content.input as {
             analysis: string;
             validations?: Array<{
               rowIndex: number;
@@ -227,17 +221,33 @@ export class ClaudeService {
           };
           
           if (taskId) {
-            TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
-              validationCount: result.validations?.length || 0
-            });
+            TaskStreaming.emitToolStart(taskId, 'structured_output', 'Generating validation results', 
+              'Analyzing patterns and formatting structured output');
           }
-          
-          return {
-            analysis: result.analysis,
-            validations: result.validations,
-          };
         }
       }
+    }
+    
+    // Complete any started tool events
+    if (taskId) {
+      if (usedWebSearch) {
+        TaskStreaming.emitToolComplete(taskId, 'web_search', 'Scientific database search completed');
+      }
+      if (usedBash) {
+        TaskStreaming.emitToolComplete(taskId, 'bash', 'Calculations completed');
+      }
+      if (analysisResult) {
+        TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
+          validationCount: analysisResult.validations?.length || 0
+        });
+      }
+    }
+    
+    if (analysisResult) {
+      return {
+        analysis: analysisResult.analysis,
+        validations: analysisResult.validations,
+      };
     }
 
     throw new Error('Claude did not provide structured output');
@@ -339,14 +349,13 @@ ${JSON.stringify(data, null, 2)}
 ${selectedRows ? `Selected rows: ${selectedRows.join(', ')}` : 'All rows selected'}
 ${selectedColumns ? `Selected columns: ${selectedColumns.join(', ')}` : 'All columns selected'}
 
-Please analyze this data according to the user's request. If this is a validation task, structure your response as:
+IMPORTANT: This appears to be scientific/pharmaceutical data. Please:
+1. Use web search to verify compound names, molecular weights, IC50 values, and other scientific data
+2. Look up missing values in scientific databases like PubChem, ChEMBL, or literature
+3. Use bash calculations if needed for unit conversions or molecular property calculations
+4. ALWAYS end by calling the data_analysis_result tool with your structured findings
 
-ANALYSIS: [Your overall analysis]
-
-VALIDATIONS: [If applicable, list specific validation issues found]
-- Row X, Column Y: [status] - [original value] → [suggested value] - [reason]
-
-If this is not a validation task, provide your analysis in a clear, structured format.`;
+Please thoroughly validate this data using web search and provide specific suggestions for any missing or incorrect values. Focus on scientific accuracy and cite sources when possible.`;
   }
 
   private parseValidations(

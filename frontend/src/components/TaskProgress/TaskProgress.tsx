@@ -29,7 +29,7 @@ const stepIcons = {
 
 const statusColors = {
   pending: 'text-gray-400',
-  running: 'text-blue-500 animate-spin',
+  running: 'text-blue-500 animate-pulse',
   completed: 'text-green-500',
   error: 'text-red-500',
 };
