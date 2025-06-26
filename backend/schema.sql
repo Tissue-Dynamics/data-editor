@@ -32,6 +32,7 @@ CREATE TABLE tasks (
   status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
   method TEXT, -- 'anthropic-api', 'mock', etc.
   analysis TEXT, -- Full Claude analysis text
+  result TEXT, -- Full result JSON including validations
   error_message TEXT,
   created_at INTEGER NOT NULL,
   completed_at INTEGER,
@@ -39,7 +40,10 @@ CREATE TABLE tasks (
   
   -- Metadata
   user_id TEXT, -- For future multi-user support
-  session_id TEXT -- For tracking user sessions
+  session_id TEXT, -- For tracking user sessions
+  batch_id TEXT, -- For batch processing
+  
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
 -- Data Snapshots Table
@@ -101,6 +105,8 @@ CREATE INDEX idx_tasks_data_hash ON tasks(data_hash);
 CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_created_at ON tasks(created_at);
 CREATE INDEX idx_tasks_user_session ON tasks(user_id, session_id);
+CREATE INDEX idx_tasks_batch_id ON tasks(batch_id);
+CREATE INDEX idx_tasks_session_id ON tasks(session_id);
 
 CREATE INDEX idx_data_snapshots_created_at ON data_snapshots(created_at);
 CREATE INDEX idx_data_snapshots_session ON data_snapshots(session_id);

@@ -106,4 +106,25 @@ export const api = {
     });
     return handleResponse(response);
   },
+  
+  async getSessionTasks(sessionId: string): Promise<{
+    tasks: Array<{
+      id: string;
+      prompt: string;
+      status: 'pending' | 'processing' | 'completed' | 'failed';
+      created_at: string;
+      completed_at?: string;
+      execution_time_ms?: number;
+      analysis?: string;
+      error_message?: string;
+    }>;
+  }> {
+    const response = await fetch(`${API_URL}/api/sessions/${sessionId}/tasks`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    return handleResponse(response);
+  },
 };

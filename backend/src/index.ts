@@ -5,11 +5,13 @@ import { createClaudeService } from './services/claude';
 import { createClaudeBatchService } from './services/claude-batch';
 import { TaskStreaming } from './utils/streaming';
 import { SessionService } from './db/sessions';
+import { TaskService } from './db/tasks';
+import { createHash } from './utils/hash';
 
 const app = new Hono<{ Bindings: Env }>();
 
-// Simple in-memory task storage (will be replaced with D1 later)
-const tasks = new Map<string, {
+// In-memory task cache for quick access during streaming
+const taskCache = new Map<string, {
   id: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   prompt: string;
@@ -150,18 +152,23 @@ app.get('/api/tasks/:taskId/stream', async (c) => {
 
       // Monitor task completion
       const pollCompletion = setInterval(async () => {
-        const task = tasks.get(taskId);
+        const task = taskCache.get(taskId);
         if (!task) {
-          try {
-            const errorMsg = `data: ${JSON.stringify({ type: 'error', message: 'Task not found' })}\n\n`;
-            controller.enqueue(encoder.encode(errorMsg));
-          } catch (error) {
-            console.error('Stream write error:', error);
+          // Check database if not in cache
+          const taskService = new TaskService(c.env.DB);
+          const dbTask = await taskService.getTask(taskId);
+          if (!dbTask) {
+            try {
+              const errorMsg = `data: ${JSON.stringify({ type: 'error', message: 'Task not found' })}\n\n`;
+              controller.enqueue(encoder.encode(errorMsg));
+            } catch (error) {
+              console.error('Stream write error:', error);
+            }
+            clearInterval(pollCompletion);
+            unsubscribe();
+            controller.close();
+            return;
           }
-          clearInterval(pollCompletion);
-          unsubscribe();
-          controller.close();
-          return;
         }
 
         if (task.status === 'completed' || task.status === 'failed') {
@@ -207,28 +214,56 @@ app.get('/api/tasks/:taskId/stream', async (c) => {
 app.post('/api/tasks/batch', async (c) => {
   try {
     const body = await c.req.json();
-    const { tasks } = body; // Array of task requests
+    const { tasks, sessionId } = body; // Array of task requests and optional sessionId
     
     if (!Array.isArray(tasks) || tasks.length === 0) {
       return c.json({ error: 'Tasks array is required' }, 400);
     }
     
+    const taskService = new TaskService(c.env.DB);
     const batchService = createClaudeBatchService(c.env);
     
-    // Prepare batch requests
-    const batchRequests = await batchService.prepareBatchRequests(tasks.map(task => ({
-      id: crypto.randomUUID(),
-      prompt: task.prompt,
-      data: task.data,
-      selectedRows: task.selectedRows,
-      selectedColumns: task.selectedColumns
-    })));
+    // Create tasks in database
+    const taskIds: string[] = [];
+    const batchRequests = [];
     
-    // Create batch
-    const batchId = await batchService.createBatch(batchRequests);
+    for (const task of tasks) {
+      const taskId = crypto.randomUUID();
+      const dataHash = createHash(JSON.stringify(task.data));
+      
+      // Create task in database
+      await taskService.createTask({
+        prompt: task.prompt,
+        data_hash: dataHash,
+        selected_rows: task.selectedRows,
+        selected_columns: task.selectedColumns,
+        session_id: sessionId
+      });
+      
+      taskIds.push(taskId);
+      
+      // Prepare batch request
+      const batchRequest = await batchService.prepareBatchRequests([{
+        id: taskId,
+        prompt: task.prompt,
+        data: task.data,
+        selectedRows: task.selectedRows,
+        selectedColumns: task.selectedColumns
+      }]);
+      
+      batchRequests.push(...batchRequest);
+    }
+    
+    // Create batch in Claude API
+    const claudeBatchId = await batchService.createBatch(batchRequests);
+    
+    // Link tasks to batch
+    const batchId = await taskService.createBatch(taskIds);
     
     return c.json({
       batchId,
+      claudeBatchId,
+      taskIds,
       taskCount: tasks.length,
       message: 'Batch created successfully. Poll /api/batches/{batchId} for status.'
     });
@@ -242,10 +277,17 @@ app.post('/api/tasks/batch', async (c) => {
 app.get('/api/batches/:batchId', async (c) => {
   try {
     const batchId = c.req.param('batchId');
-    const batchService = createClaudeBatchService(c.env);
+    const taskService = new TaskService(c.env.DB);
     
-    const status = await batchService.getBatchStatus(batchId);
-    return c.json(status);
+    // Get batch status from database
+    const batchStatus = await taskService.getBatchStatus(batchId);
+    
+    return c.json({
+      batchId,
+      status: batchStatus.pending > 0 || batchStatus.processing > 0 ? 'processing' : 'completed',
+      counts: batchStatus,
+      tasks: await taskService.getTasksByBatchId(batchId)
+    });
   } catch (error) {
     console.error('Failed to get batch status:', error);
     return c.json({ error: 'Failed to get batch status' }, 500);
@@ -262,18 +304,34 @@ app.post('/api/tasks/execute', async (c) => {
       return c.json({ error: 'Prompt is required' }, 400);
     }
 
-    // Create task record
+    // Create task record in database
     const taskId = crypto.randomUUID();
+    const dataHash = createHash(JSON.stringify(data));
+    
+    // Get session ID from body if provided
+    const sessionId = body.sessionId;
+    
+    // Create task in database
+    const taskService = new TaskService(c.env.DB);
+    await taskService.createTask({
+      prompt,
+      data_hash: dataHash,
+      selected_rows: selectedRows,
+      selected_columns: selectedColumns,
+      session_id: sessionId
+    });
+    
+    // Also cache for quick access
     const task = {
       id: taskId,
       status: 'pending' as const,
       prompt,
       createdAt: new Date(),
     };
-    tasks.set(taskId, task);
+    taskCache.set(taskId, task);
 
     // Start background processing
-    c.executionCtx.waitUntil(processTask(taskId, prompt, data, selectedRows, selectedColumns, c.env));
+    c.executionCtx.waitUntil(processTask(taskId, prompt, data, selectedRows, selectedColumns, c.env, sessionId));
 
     return c.json({
       taskId,
@@ -294,10 +352,13 @@ async function processTask(
   data: Record<string, any>[],
   selectedRows?: number[],
   selectedColumns?: string[],
-  env?: Env
+  env?: Env,
+  sessionId?: string
 ) {
-  const task = tasks.get(taskId);
+  const task = taskCache.get(taskId);
   if (!task) return;
+  
+  const taskService = new TaskService(env?.DB!);
 
   try {
     console.log(`[Task ${taskId}] Starting analysis...`);
@@ -311,7 +372,8 @@ async function processTask(
 
     // Update status to processing
     task.status = 'processing';
-    tasks.set(taskId, task);
+    taskCache.set(taskId, task);
+    await taskService.updateTask(taskId, { status: 'processing' });
 
     // Create Claude service
     const claudeService = createClaudeService(env || {} as Env);
@@ -345,7 +407,15 @@ async function processTask(
     task.status = 'completed';
     task.result = result;
     task.completedAt = new Date();
-    tasks.set(taskId, task);
+    taskCache.set(taskId, task);
+    
+    // Persist to database
+    await taskService.updateTask(taskId, {
+      status: 'completed',
+      analysis: result.analysis,
+      method: result.method,
+      result: JSON.stringify(result)
+    });
     
     console.log(`[Task ${taskId}] Task completed successfully`);
 
@@ -355,14 +425,62 @@ async function processTask(
     task.status = 'failed';
     task.error = error instanceof Error ? error.message : 'Unknown error';
     task.completedAt = new Date();
-    tasks.set(taskId, task);
+    taskCache.set(taskId, task);
+    
+    // Persist to database
+    await taskService.updateTask(taskId, {
+      status: 'failed',
+      error_message: task.error
+    });
   }
 }
 
+// Get tasks by session ID
+app.get('/api/sessions/:sessionId/tasks', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const taskService = new TaskService(c.env.DB);
+    
+    const tasks = await taskService.getTasksBySessionId(sessionId);
+    
+    return c.json({
+      tasks: tasks.map(task => ({
+        id: task.id,
+        prompt: task.prompt,
+        status: task.status,
+        created_at: new Date(task.created_at).toISOString(),
+        completed_at: task.completed_at ? new Date(task.completed_at).toISOString() : undefined,
+        execution_time_ms: task.execution_time_ms,
+        analysis: task.analysis,
+        error_message: task.error_message
+      }))
+    });
+  } catch (error) {
+    console.error('Failed to get session tasks:', error);
+    return c.json({ error: 'Failed to get session tasks' }, 500);
+  }
+});
+
 // Get task status endpoint
-app.get('/api/tasks/:taskId', (c) => {
+app.get('/api/tasks/:taskId', async (c) => {
   const taskId = c.req.param('taskId');
-  const task = tasks.get(taskId);
+  
+  // First check cache
+  const cachedTask = taskCache.get(taskId);
+  if (cachedTask) {
+    return c.json({
+      taskId: cachedTask.id,
+      status: cachedTask.status,
+      result: cachedTask.result,
+      error: cachedTask.error,
+      createdAt: cachedTask.createdAt.toISOString(),
+      completedAt: cachedTask.completedAt?.toISOString(),
+    });
+  }
+  
+  // Fall back to database
+  const taskService = new TaskService(c.env.DB);
+  const task = await taskService.getTask(taskId);
   
   if (!task) {
     return c.json({ error: 'Task not found' }, 404);
@@ -371,10 +489,10 @@ app.get('/api/tasks/:taskId', (c) => {
   return c.json({
     taskId: task.id,
     status: task.status,
-    result: task.result,
-    error: task.error,
-    createdAt: task.createdAt.toISOString(),
-    completedAt: task.completedAt?.toISOString(),
+    result: task.result ? JSON.parse(task.result) : undefined,
+    error: task.error_message,
+    createdAt: new Date(task.created_at).toISOString(),
+    completedAt: task.completed_at ? new Date(task.completed_at).toISOString() : undefined,
   });
 });
 

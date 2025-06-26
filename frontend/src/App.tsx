@@ -7,6 +7,7 @@ import { VersionHistory } from './components/VersionHistory/VersionHistory';
 import { ValidationLegend } from './components/ValidationLegend/ValidationLegend';
 import { ValidationSummary } from './components/ValidationSummary/ValidationSummary';
 import { SessionsList, type SessionInfo } from './components/SessionsList/SessionsList';
+import { TaskHistory } from './components/TaskHistory/TaskHistory';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
 import type { Task, ClaudeAnalysisResult } from './types/tasks';
@@ -440,6 +441,7 @@ function App() {
         selectedRows: selection.rows,
         selectedColumns: selection.columns,
         data: data.filter((_, index) => selection.rows.includes(index)),
+        sessionId: currentSession?.id,
       });
       
       // Create a task object for UI
@@ -652,7 +654,7 @@ function App() {
               })()}
             </div>
             
-            <div className="xl:col-span-1 xl:sticky xl:top-4 h-fit">
+            <div className="xl:col-span-1 xl:sticky xl:top-4 h-fit space-y-4">
               <TaskPanel 
                 selection={selection}
                 onExecuteTask={handleExecuteTask}
@@ -660,6 +662,17 @@ function App() {
                 currentTask={currentTask}
                 error={taskError}
               />
+              
+              {currentSession && (
+                <div className="bg-white rounded-lg shadow p-4">
+                  <TaskHistory 
+                    sessionId={currentSession.id}
+                    onTaskSelect={(task) => {
+                      console.log('Selected historical task:', task);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}

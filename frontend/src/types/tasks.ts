@@ -42,6 +42,7 @@ export interface TaskRequest {
   selectedRows?: number[];
   selectedColumns?: string[];
   data?: Record<string, unknown>[];
+  sessionId?: string;
 }
 
 export interface ClaudeAnalysisResult {
