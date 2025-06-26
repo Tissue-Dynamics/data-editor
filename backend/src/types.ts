@@ -1,4 +1,5 @@
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
+import type { DataRow, ClaudeAnalysisResult } from './types/data';
 
 export interface Env {
   // Cloudflare bindings
@@ -11,13 +12,13 @@ export interface TaskRequest {
   prompt: string;
   selectedRows?: number[];
   selectedColumns?: string[];
-  data?: Record<string, any>[];
+  data?: DataRow[];
 }
 
 export interface TaskResponse {
   taskId: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   message?: string;
-  result?: any;
+  result?: ClaudeAnalysisResult;
   error?: string;
 }

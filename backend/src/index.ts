@@ -2,25 +2,31 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from './types';
+import type { ClaudeAnalysisResult, DataRow } from './types/data';
 import { createClaudeService } from './services/claude';
 import { createClaudeBatchService } from './services/claude-batch';
 import { TaskStreaming } from './utils/streaming';
 import { SessionService } from './db/sessions';
 import { TaskService } from './db/tasks';
 import { createHash } from './utils/hash';
+import { LRUCache } from './utils/cache';
 
 const app = new Hono<{ Bindings: Env }>();
 
-// In-memory task cache for quick access during streaming
-const taskCache = new Map<string, {
+// Task cache interface
+interface CachedTask {
   id: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   prompt: string;
-  result?: any;
+  result?: ClaudeAnalysisResult;
   error?: string;
   createdAt: Date;
   completedAt?: Date;
-}>();
+}
+
+// LRU cache with TTL to prevent memory leaks
+// Max 1000 tasks, 1 hour TTL
+const taskCache = new LRUCache<string, CachedTask>(1000, 3600);
 
 // Configure CORS to allow requests from the frontend
 app.use('/*', cors({
@@ -559,6 +565,9 @@ async function processTask(
     });
     
     console.log(`[Task ${taskId}] Task completed successfully`);
+    
+    // Schedule cleanup to prevent memory leak
+    TaskStreaming.scheduleTaskCleanup(taskId);
 
   } catch (error) {
     console.error(`[Task ${taskId}] Error:`, error);
@@ -573,6 +582,9 @@ async function processTask(
       status: 'failed',
       error_message: task.error
     });
+    
+    // Schedule cleanup to prevent memory leak
+    TaskStreaming.scheduleTaskCleanup(taskId);
   }
 }
 

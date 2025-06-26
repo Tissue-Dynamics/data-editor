@@ -1,5 +1,6 @@
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 import { StorageService } from '../services/storage';
+import type { DataRow } from '../types/data';
 
 export interface Session {
   id: string;
@@ -46,7 +47,7 @@ export class SessionService {
     file_name?: string;
     file_type?: string;
     file_content?: ArrayBuffer | string;
-    data: any[];
+    data: DataRow[];
     column_names: string[];
   }): Promise<Session> {
     const sessionId = crypto.randomUUID();
@@ -174,7 +175,7 @@ export class SessionService {
     return result || null;
   }
 
-  async saveSnapshot(sessionId: string, data: any[], changeDescription: string, createdBy: 'user' | 'ai' = 'user'): Promise<number> {
+  async saveSnapshot(sessionId: string, data: DataRow[], changeDescription: string, createdBy: 'user' | 'ai' = 'user'): Promise<number> {
     // Get current version
     const session = await this.getSession(sessionId);
     if (!session) throw new Error('Session not found');

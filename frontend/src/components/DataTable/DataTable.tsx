@@ -48,6 +48,7 @@ interface DataTableProps {
   onSelectionChange?: (selection: Selection) => void;
   onApplyValidation?: (rowIndex: number, columnId: string) => void;
   onConfirmValidation?: (rowIndex: number, columnId: string) => void;
+  onCellClick?: (rowIndex: number, columnId: string, position: { x: number; y: number }) => void;
 }
 
 export const DataTable: React.FC<DataTableProps> = ({ 
@@ -55,7 +56,8 @@ export const DataTable: React.FC<DataTableProps> = ({
   validations = new Map(),
   onSelectionChange,
   onApplyValidation,
-  onConfirmValidation 
+  onConfirmValidation,
+  onCellClick
 }) => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
@@ -188,7 +190,16 @@ export const DataTable: React.FC<DataTableProps> = ({
                     const validation = validations.get(cellKey);
                     
                     return (
-                      <td key={cell.id} className="px-4 py-2 data-table-cell relative group">
+                      <td 
+                        key={cell.id} 
+                        className="px-4 py-2 data-table-cell relative group cursor-pointer"
+                        onClick={(e) => {
+                          if (onCellClick) {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            onCellClick(row.index, cell.column.id, { x: rect.right, y: rect.top });
+                          }
+                        }}
+                      >
                         <div className="flex items-center gap-2">
                           {/* Status Orb */}
                           <div className="flex-shrink-0">

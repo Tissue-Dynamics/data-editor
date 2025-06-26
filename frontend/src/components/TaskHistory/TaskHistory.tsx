@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import type { TaskEvent } from '../../types/tasks';
+import type { TaskEvent, ClaudeAnalysisResult } from '../../types/tasks';
 
 interface TaskHistoryItem {
   id: string;
@@ -11,7 +11,7 @@ interface TaskHistoryItem {
   execution_time_ms?: number;
   analysis?: string;
   error_message?: string;
-  result?: any; // Full task result including validations
+  result?: ClaudeAnalysisResult; // Full task result including validations
 }
 
 interface TaskHistoryProps {

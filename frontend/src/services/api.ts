@@ -1,5 +1,6 @@
-import type { TaskRequest, TaskResponse } from '../types';
+import type { TaskRequest, TaskResponse, BatchTask } from '../types';
 import type { SessionInfo } from '../components/SessionsList/SessionsList';
+import type { DataRow } from '../types/data';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
@@ -82,7 +83,7 @@ export const api = {
     description?: string;
     file_name?: string;
     file_type?: string;
-    data: any[];
+    data: DataRow[];
     column_names: string[];
   }): Promise<{ session: SessionInfo }> {
     const response = await fetch(`${API_URL}/api/sessions`, {
@@ -97,11 +98,11 @@ export const api = {
 
   async getSession(sessionId: string): Promise<{
     session: SessionInfo;
-    data: any[];
+    data: DataRow[];
     column_names: string[];
     snapshots?: Array<{
       version: number;
-      data: any[];
+      data: DataRow[];
       created_at: string;
       change_description?: string;
     }>;
@@ -115,7 +116,7 @@ export const api = {
     return handleResponse(response);
   },
 
-  async saveSnapshot(sessionId: string, data: any[], changeDescription: string): Promise<{
+  async saveSnapshot(sessionId: string, data: DataRow[], changeDescription: string): Promise<{
     success: boolean;
     version: number;
   }> {
@@ -165,7 +166,7 @@ export const api = {
       prompt: string;
       selectedRows?: number[];
       selectedColumns?: string[];
-      data: any[];
+      data: DataRow[];
     }>;
     sessionId?: string;
   }): Promise<{
@@ -195,7 +196,7 @@ export const api = {
       completed: number;
       failed: number;
     };
-    tasks: any[];
+    tasks: BatchTask[];
   }> {
     const response = await fetch(`${API_URL}/api/batches/${batchId}`, {
       method: 'GET',

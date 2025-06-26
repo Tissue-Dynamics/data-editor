@@ -1,5 +1,8 @@
 // Streaming utilities for real-time task progress
 
+import { LRUCache } from './cache';
+import type { TaskEventData } from '../types/data';
+
 export interface TaskEvent {
   taskId: string;
   type: 'tool_start' | 'tool_complete' | 'tool_error' | 'analysis_start' | 'analysis_complete';
@@ -7,12 +10,16 @@ export interface TaskEvent {
   description: string;
   details?: string;
   timestamp: number;
-  data?: any;
+  data?: TaskEventData;
 }
 
-// Simple event store for streaming (in production, use Redis or similar)
-const taskEvents = new Map<string, TaskEvent[]>();
+// LRU cache for task events to prevent memory leaks
+// Max 500 tasks, 30 minute TTL (tasks should complete within this time)
+const taskEvents = new LRUCache<string, TaskEvent[]>(500, 1800);
 const activeStreams = new Map<string, Set<(event: TaskEvent) => void>>();
+
+// Cleanup completed tasks after 5 minutes
+const CLEANUP_DELAY = 5 * 60 * 1000;
 
 export class TaskStreaming {
   static addEvent(event: TaskEvent) {
@@ -53,6 +60,16 @@ export class TaskStreaming {
     activeStreams.delete(taskId);
   }
 
+  // Schedule task cleanup after completion
+  static scheduleTaskCleanup(taskId: string) {
+    setTimeout(() => {
+      // Only remove if no active streams
+      if (!activeStreams.has(taskId)) {
+        this.removeTask(taskId);
+      }
+    }, CLEANUP_DELAY);
+  }
+
   // Helper methods to emit common events
   static emitToolStart(taskId: string, tool: TaskEvent['tool'], description: string, details?: string) {
     this.addEvent({
@@ -65,7 +82,7 @@ export class TaskStreaming {
     });
   }
 
-  static emitToolComplete(taskId: string, tool: TaskEvent['tool'], description: string, data?: any) {
+  static emitToolComplete(taskId: string, tool: TaskEvent['tool'], description: string, data?: TaskEventData) {
     this.addEvent({
       taskId,
       type: 'tool_complete',
@@ -96,7 +113,7 @@ export class TaskStreaming {
     });
   }
 
-  static emitAnalysisComplete(taskId: string, description: string, data?: any) {
+  static emitAnalysisComplete(taskId: string, description: string, data?: TaskEventData) {
     this.addEvent({
       taskId,
       type: 'analysis_complete',

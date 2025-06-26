@@ -1,3 +1,5 @@
+import type { ValidationResult } from './validation';
+
 export interface Task {
   id: string;
   prompt: string;
@@ -11,21 +13,17 @@ export interface Task {
   result?: TaskResult;
 }
 
+// Extended task interface with validation results
+export interface TaskWithValidations extends Task {
+  result?: TaskResult & {
+    validations?: ValidationResult[];
+  };
+}
+
 export interface TaskResult {
   success: boolean;
   message?: string;
-  validations?: Map<string, ValidationResult>;
   error?: string;
-}
-
-export interface ValidationResult {
-  cellKey: string; // "rowIndex-columnId"
-  status: 'validated' | 'warning' | 'error';
-  originalValue: string | number | null;
-  validatedValue?: string | number | null;
-  confidence?: number;
-  source?: string;
-  notes?: string;
 }
 
 export interface TaskExample {
@@ -43,6 +41,7 @@ export interface TaskRequest {
   selectedColumns?: string[];
   data?: Record<string, unknown>[];
   sessionId?: string;
+  batchMode?: boolean;
 }
 
 export interface ClaudeAnalysisResult {
@@ -55,6 +54,11 @@ export interface ClaudeAnalysisResult {
     originalValue: unknown;
     suggestedValue?: unknown;
     reason: string;
+  }>;
+  rowDeletions?: Array<{
+    rowIndex: number;
+    reason: string;
+    confidence: 'high' | 'medium' | 'low';
   }>;
 }
 
@@ -77,4 +81,11 @@ export interface TaskResponse {
   events?: TaskEvent[];
   createdAt?: string;
   completedAt?: string;
+}
+
+export interface BatchTask {
+  id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error_message?: string;
+  result?: ClaudeAnalysisResult;
 }

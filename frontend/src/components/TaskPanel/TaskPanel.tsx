@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Send, Sparkles, AlertCircle, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Send, Sparkles, AlertCircle, Loader2, CheckCircle, XCircle, DollarSign } from 'lucide-react';
 import type { Selection } from '../../types/data';
 import type { TaskExample, Task, ClaudeAnalysisResult } from '../../types/tasks';
 import { TaskExamples } from './TaskExamples';
 
 interface TaskPanelProps {
   selection: Selection;
-  onExecuteTask: (prompt: string) => void;
+  onExecuteTask: (prompt: string, options?: { batchMode?: boolean }) => void;
   isLoading?: boolean;
   currentTask?: Task | null;
   error?: string | null;
@@ -20,12 +20,13 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
   error
 }) => {
   const [prompt, setPrompt] = useState('');
+  const [batchMode, setBatchMode] = useState(false);
 
   const hasSelection = selection.rows.length > 0 || selection.columns.length > 0;
   
   const handleExecute = () => {
     if (!prompt.trim() || !hasSelection) return;
-    onExecuteTask(prompt);
+    onExecuteTask(prompt, { batchMode });
     setPrompt('');
   };
 
@@ -55,8 +56,33 @@ export const TaskPanel: React.FC<TaskPanelProps> = ({
       )}
 
       {hasSelection && (
-        <div className="text-sm text-gray-600">
-          Selected: {selection.rows.length} rows, {selection.columns.length} columns
+        <div className="space-y-2">
+          <div className="text-sm text-gray-600">
+            Selected: {selection.rows.length} rows, {selection.columns.length} columns
+          </div>
+          
+          {/* Batch Mode Toggle */}
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={batchMode}
+                onChange={(e) => setBatchMode(e.target.checked)}
+                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <span className="text-sm text-gray-700">Cost-saving mode</span>
+            </label>
+            <div className="flex items-center gap-1">
+              <DollarSign className="w-3 h-3 text-green-600" />
+              <span className="text-xs text-green-600 font-medium">Cheaper</span>
+            </div>
+          </div>
+          
+          {batchMode && (
+            <div className="text-xs text-green-600 bg-green-50 p-2 rounded">
+              Uses faster model with limited tools to reduce costs. Best for simple validation tasks.
+            </div>
+          )}
         </div>
       )}
 
