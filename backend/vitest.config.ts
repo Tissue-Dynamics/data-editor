@@ -3,17 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'miniflare',
-    environmentOptions: {
-      bindings: {
-        ANTHROPIC_API_KEY: 'test-api-key',
-        ENVIRONMENT: 'test'
-      },
-      kvNamespaces: ['TEST_NAMESPACE'],
-      durableObjects: {},
-      r2Buckets: ['TEST_BUCKET'],
-      d1Databases: ['TEST_DB']
-    },
+    environment: 'node',
+    setupFiles: ['./src/__tests__/setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
