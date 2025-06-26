@@ -59,7 +59,7 @@ export class ClaudeService {
     if (this.anthropic) {
       try {
         if (taskId) {
-          TaskStreaming.emitToolStart(taskId, 'structured_output', 'Preparing Claude-4 analysis with tools');
+          TaskStreaming.emitToolStart(taskId, 'structured_output', 'Setting up analysis parameters');
         }
         const result = await this.useAnthropicAPI(prompt, relevantData, selectedRows, selectedColumns, taskId);
         if (taskId) {
@@ -156,10 +156,7 @@ export class ClaudeService {
 
     const userMessage = this.buildAnalysisPrompt(prompt, data, selectedRows, selectedColumns);
 
-    if (taskId) {
-      TaskStreaming.emitToolStart(taskId, 'web_search', 'Searching scientific databases for compound validation', 
-        'Accessing PubChem, ChEMBL, and literature databases');
-    }
+    // No longer emit hardcoded web search event here - let Claude's actual usage trigger it
 
     let messages: any[] = [
       {
@@ -207,8 +204,10 @@ export class ClaudeService {
         if (content.name === 'web_search') {
           usedWebSearch = true;
           if (taskId) {
-            TaskStreaming.emitToolStart(taskId, 'web_search', 'Searching scientific databases', 
-              `Query: ${JSON.stringify(content.input).substring(0, 100)}...`);
+            const query = content.input?.query || content.input;
+            const searchDesc = query ? `Searching for: "${String(query).substring(0, 60)}${String(query).length > 60 ? '...' : ''}"` : 'Performing web search';
+            TaskStreaming.emitToolStart(taskId, 'web_search', searchDesc, 
+              'Checking scientific databases and literature');
           }
           
           // Add tool result message
@@ -225,8 +224,20 @@ export class ClaudeService {
         if (content.name === 'bash') {
           usedBash = true;
           if (taskId) {
-            TaskStreaming.emitToolStart(taskId, 'bash', 'Running calculations', 
-              `Command: ${JSON.stringify(content.input).substring(0, 100)}...`);
+            const command = content.input?.command || content.input;
+            let bashDesc = 'Running calculations';
+            
+            // Provide context-aware descriptions based on command patterns
+            if (String(command).includes('mol') || String(command).includes('smiles')) {
+              bashDesc = 'Calculating molecular properties';
+            } else if (String(command).includes('convert') || String(command).includes('unit')) {
+              bashDesc = 'Converting units';
+            } else if (String(command).includes('stat') || String(command).includes('mean')) {
+              bashDesc = 'Computing statistics';
+            }
+            
+            TaskStreaming.emitToolStart(taskId, 'bash', bashDesc, 
+              String(command).substring(0, 80) + (String(command).length > 80 ? '...' : ''));
           }
           
           // Add tool result message  
@@ -299,8 +310,10 @@ export class ClaudeService {
         };
         
         if (taskId) {
-          TaskStreaming.emitToolStart(taskId, 'structured_output', 'Generating validation results', 
-            'Analyzing patterns and formatting structured output');
+          const validationCount = analysisResult.validations?.length || 0;
+          TaskStreaming.emitToolStart(taskId, 'structured_output', 
+            `Generating ${validationCount} validation${validationCount === 1 ? '' : 's'}`, 
+            'Formatting analysis results');
           TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
             validationCount: analysisResult.validations?.length || 0
           });

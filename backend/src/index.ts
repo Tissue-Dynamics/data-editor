@@ -178,8 +178,8 @@ async function processTask(
     console.log(`[Task ${taskId}] Selected rows: ${selectedRows?.length || 0}`);
     console.log(`[Task ${taskId}] Selected columns: ${selectedColumns?.join(', ') || 'none'}`);
 
-    // Emit analysis start event
-    TaskStreaming.emitAnalysisStart(taskId, 'Initializing data analysis');
+    // Emit analysis start event with context
+    TaskStreaming.emitAnalysisStart(taskId, `Processing request: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"`);
 
     // Update status to processing
     task.status = 'processing';
@@ -190,7 +190,7 @@ async function processTask(
 
     // Analyze data with Claude
     console.log(`[Task ${taskId}] Calling Claude...`);
-    TaskStreaming.emitAnalysisStart(taskId, 'Starting Claude analysis with web search and code execution');
+    TaskStreaming.emitAnalysisStart(taskId, `Analyzing ${data?.length || 0} rows${selectedColumns?.length ? ` across ${selectedColumns.length} columns` : ''}`);
     
     const result = await claudeService.analyzeData(
       prompt,

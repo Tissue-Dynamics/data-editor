@@ -5,6 +5,7 @@ import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import { TaskProgress } from './components/TaskProgress/TaskProgress';
 import { VersionHistory } from './components/VersionHistory/VersionHistory';
 import { ValidationLegend } from './components/ValidationLegend/ValidationLegend';
+import { ValidationSummary } from './components/ValidationSummary/ValidationSummary';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
 import type { Task, ClaudeAnalysisResult } from './types/tasks';
@@ -35,6 +36,17 @@ function App() {
   const [isTaskRunning, setIsTaskRunning] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [taskSteps, setTaskSteps] = useState<TaskStep[]>([]);
+  const [validationSummary, setValidationSummary] = useState<{
+    analysis?: string;
+    messages: Array<{
+      rowIndex: number;
+      columnId: string;
+      status: 'valid' | 'warning' | 'error' | 'conflict';
+      message: string;
+      suggestedValue?: any;
+      isEstimate?: boolean;
+    }>;
+  } | null>(null);
 
   const handleDataLoad = (loadedData: DataRow[], fileName: string) => {
     setData(loadedData);
@@ -67,6 +79,33 @@ function App() {
       setData(dataHistory[historyIndex + 1]);
     }
   }, [historyIndex, dataHistory]);
+
+  const applyValidationValue = useCallback((rowIndex: number, columnId: string, value: any) => {
+    const newData = [...data];
+    newData[rowIndex] = {
+      ...newData[rowIndex],
+      [columnId]: value
+    };
+    
+    setData(newData);
+    saveToHistory(newData);
+    
+    // Update validation state
+    const cellKey = `${rowIndex}-${columnId}`;
+    setValidations(prev => {
+      const newValidations = new Map(prev);
+      const existing = newValidations.get(cellKey);
+      if (existing) {
+        newValidations.set(cellKey, {
+          ...existing,
+          status: 'auto_updated',
+          applied: true,
+          timestamp: new Date(),
+        });
+      }
+      return newValidations;
+    });
+  }, [data, saveToHistory]);
 
   const confirmValidation = useCallback((rowIndex: number, columnId: string) => {
     const cellKey = `${rowIndex}-${columnId}`;
@@ -168,25 +207,48 @@ function App() {
     }
 
     console.log(`Found ${claudeResult.validations.length} validations from Claude`);
-    const newValidations = new Map(validations);
-    const newData = [...data];
-    let hasChanges = false;
     
-    claudeResult.validations.forEach((validation, index) => {
+    // Create validation messages for summary
+    const messages = claudeResult.validations.map(validation => {
+      // Check if this is an estimate based on keywords in the reason
+      const isEstimate = validation.reason.toLowerCase().includes('estimat') || 
+                        validation.reason.toLowerCase().includes('typical') ||
+                        validation.reason.toLowerCase().includes('based on peer') ||
+                        validation.reason.toLowerCase().includes('based on similar');
+      
+      return {
+        rowIndex: validation.rowIndex,
+        columnId: validation.columnId,
+        status: validation.status,
+        message: validation.reason,
+        suggestedValue: validation.suggestedValue,
+        isEstimate
+      };
+    });
+    
+    // Set validation summary for display
+    setValidationSummary({
+      analysis: claudeResult.analysis,
+      messages
+    });
+    
+    // Only create validation states for cells, no auto-applying
+    const newValidations = new Map(validations);
+    
+    claudeResult.validations.forEach((validation) => {
       const cellKey = `${validation.rowIndex}-${validation.columnId}`;
-      console.log(`Processing validation ${index + 1}: ${cellKey} = ${validation.status}`);
       
       // Map Claude statuses to our new system
       let mappedStatus: ValidationState['status'];
       switch (validation.status) {
         case 'valid':
-          mappedStatus = validation.suggestedValue !== undefined ? 'auto_updated' : 'unchecked';
+          mappedStatus = 'confirmed'; // Valid means confirmed by research
           break;
         case 'warning':
-          mappedStatus = validation.suggestedValue !== undefined ? 'auto_updated' : 'unchecked';
+          mappedStatus = 'auto_updated'; // Warning means needs user review
           break;
         case 'error':
-          mappedStatus = 'conflict';
+          mappedStatus = 'conflict'; // Error means missing or problematic
           break;
         case 'conflict':
           mappedStatus = 'conflict';
@@ -205,34 +267,15 @@ function App() {
         notes: validation.reason,
         timestamp: new Date(),
         applied: false,
-        confirmed: false,
+        confirmed: validation.status === 'valid',
       };
       
-      // Auto-apply suggestions (making them orange)
-      if (validation.suggestedValue !== undefined && validation.suggestedValue !== validation.originalValue) {
-        newData[validation.rowIndex] = {
-          ...newData[validation.rowIndex],
-          [validation.columnId]: validation.suggestedValue
-        };
-        validationState.applied = true;
-        hasChanges = true;
-        console.log(`Auto-applied suggestion for ${cellKey}: ${validation.originalValue} → ${validation.suggestedValue}`);
-      }
-      
       newValidations.set(cellKey, validationState);
-      console.log(`Added validation for ${cellKey}:`, validationState);
     });
     
     console.log('Setting new validations map with', newValidations.size, 'entries');
     setValidations(newValidations);
-    
-    // Update data with auto-applied changes and save to history
-    if (hasChanges) {
-      setData(newData);
-      saveToHistory(newData);
-      console.log('Auto-applied', claudeResult.validations.filter(v => v.suggestedValue !== undefined).length, 'suggestions');
-    }
-  }, [validations, data, saveToHistory]);
+  }, [validations]);
 
   const addTaskStep = useCallback((step: Omit<TaskStep, 'id' | 'timestamp'>) => {
     const newStep: TaskStep = {
@@ -469,6 +512,16 @@ function App() {
                   dataHistory={dataHistory}
                   currentIndex={historyIndex}
                   onNavigate={navigateHistory}
+                />
+              )}
+              
+              {/* Validation Summary */}
+              {validationSummary && (
+                <ValidationSummary
+                  analysis={validationSummary.analysis}
+                  validationMessages={validationSummary.messages}
+                  onApplyValue={applyValidationValue}
+                  onDismiss={() => setValidationSummary(null)}
                 />
               )}
               
