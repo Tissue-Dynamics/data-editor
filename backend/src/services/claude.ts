@@ -161,12 +161,19 @@ export class ClaudeService {
         'Accessing PubChem, ChEMBL, and literature databases');
     }
 
-    const response = await this.anthropic.messages.create({
+    let messages: any[] = [
+      {
+        role: 'user',
+        content: userMessage,
+      },
+    ];
+
+    // First call: Allow Claude to use research tools
+    const firstResponse = await this.anthropic.messages.create({
       model: 'claude-4-sonnet-20250514',
       max_tokens: 4000,
       temperature: 0.1,
       tools: [
-        validationTool,
         {
           type: "web_search_20250305",
           name: "web_search",
@@ -178,20 +185,14 @@ export class ClaudeService {
         }
       ],
       tool_choice: { type: "auto" },
-      messages: [
-        {
-          role: 'user',
-          content: userMessage,
-        },
-      ],
+      messages,
     });
 
-    // Process Claude's response and track tool usage
+    // Track tool usage for streaming
     let usedWebSearch = false;
     let usedBash = false;
-    let analysisResult: any = null;
     
-    for (const content of response.content) {
+    for (const content of firstResponse.content) {
       if (content.type === 'tool_use') {
         console.log(`[Task ${taskId}] Claude used tool: ${content.name}`);
         
@@ -206,29 +207,10 @@ export class ClaudeService {
           TaskStreaming.emitToolStart(taskId, 'bash', 'Running calculations', 
             `Command: ${JSON.stringify(content.input).substring(0, 100)}...`);
         }
-        
-        if (content.name === 'data_analysis_result') {
-          analysisResult = content.input as {
-            analysis: string;
-            validations?: Array<{
-              rowIndex: number;
-              columnId: string;
-              status: 'valid' | 'warning' | 'error' | 'conflict';
-              originalValue: any;
-              suggestedValue?: any;
-              reason: string;
-            }>;
-          };
-          
-          if (taskId) {
-            TaskStreaming.emitToolStart(taskId, 'structured_output', 'Generating validation results', 
-              'Analyzing patterns and formatting structured output');
-          }
-        }
       }
     }
-    
-    // Complete any started tool events
+
+    // Complete tool events
     if (taskId) {
       if (usedWebSearch) {
         TaskStreaming.emitToolComplete(taskId, 'web_search', 'Scientific database search completed');
@@ -236,18 +218,57 @@ export class ClaudeService {
       if (usedBash) {
         TaskStreaming.emitToolComplete(taskId, 'bash', 'Calculations completed');
       }
-      if (analysisResult) {
-        TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
-          validationCount: analysisResult.validations?.length || 0
-        });
-      }
     }
-    
-    if (analysisResult) {
-      return {
-        analysis: analysisResult.analysis,
-        validations: analysisResult.validations,
-      };
+
+    // Add first response to messages
+    messages.push({
+      role: 'assistant',
+      content: firstResponse.content
+    });
+
+    // Second call: Force structured output with research context
+    messages.push({
+      role: 'user',
+      content: 'Based on your research above, please now provide your structured analysis using the data_analysis_result tool. Include any findings from your web searches or calculations in your validation results.'
+    });
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-4-sonnet-20250514',
+      max_tokens: 4000,
+      temperature: 0.1,
+      tools: [validationTool],
+      tool_choice: { type: "tool", name: "data_analysis_result" },
+      messages,
+    });
+
+    // Process structured output (guaranteed from second call)
+    for (const content of response.content) {
+      if (content.type === 'tool_use' && content.name === 'data_analysis_result') {
+        const analysisResult = content.input as {
+          analysis: string;
+          validations?: Array<{
+            rowIndex: number;
+            columnId: string;
+            status: 'valid' | 'warning' | 'error' | 'conflict';
+            originalValue: any;
+            suggestedValue?: any;
+            reason: string;
+          }>;
+        };
+        
+        if (taskId) {
+          TaskStreaming.emitToolStart(taskId, 'structured_output', 'Generating validation results', 
+            'Analyzing patterns and formatting structured output');
+          TaskStreaming.emitToolComplete(taskId, 'structured_output', 'Validation results generated', {
+            validationCount: analysisResult.validations?.length || 0
+          });
+        }
+        
+        return {
+          analysis: analysisResult.analysis,
+          validations: analysisResult.validations,
+        };
+      }
     }
 
     throw new Error('Claude did not provide structured output');
@@ -353,7 +374,9 @@ IMPORTANT: This appears to be scientific/pharmaceutical data. Please:
 1. Use web search to verify compound names, molecular weights, IC50 values, and other scientific data
 2. Look up missing values in scientific databases like PubChem, ChEMBL, or literature
 3. Use bash calculations if needed for unit conversions or molecular property calculations
-4. ALWAYS end by calling the data_analysis_result tool with your structured findings
+4. **CRITICALLY IMPORTANT**: You MUST end your analysis by calling the 'data_analysis_result' tool with your structured findings
+
+After using any web search or bash tools, you MUST call the data_analysis_result tool to provide your structured output. This is required - do not end the conversation without calling this tool.
 
 Please thoroughly validate this data using web search and provide specific suggestions for any missing or incorrect values. Focus on scientific accuracy and cite sources when possible.`;
   }
