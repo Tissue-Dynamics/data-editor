@@ -1,0 +1,20 @@
+
+ ⛅️ wrangler 4.21.2
+───────────────────
+Your Worker has access to the following bindings:
+Binding                              Resource                  Mode
+env.ENVIRONMENT ("development")      Environment Variable      local
+
+❓ Your types might be out of date. Re-run `wrangler types` to ensure your types are correct.
+⎔ Starting local server...
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mAddress already in use (127.0.0.1:8787). Please check that you are not already running a server on this address or specify a different port with --port.[0m
+
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mThe Workers runtime failed to start. There is likely additional logging output above.[0m
+
+
+[32mIf you think this is a bug then please create an issue at https://github.com/cloudflare/workers-sdk/issues/new/choose[0m
+? Would you like to report this error to Cloudflare? Wrangler's output and the error details will be shared with the Wrangler team to help us diagnose and fix the issue.
+🤖 Using fallback value in non-interactive context: no
+🪵  Logs were written to "/Users/shaunie/Library/Preferences/.wrangler/logs/wrangler-2025-06-26_08-34-57_348.log"

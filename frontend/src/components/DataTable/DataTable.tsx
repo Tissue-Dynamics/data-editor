@@ -110,56 +110,87 @@ export const DataTable: React.FC<DataTableProps> = ({
   });
 
   React.useEffect(() => {
-    if (onSelectionChange) {
-      const selectedRows = Object.keys(rowSelection)
-        .filter(key => rowSelection[key])
-        .map(key => parseInt(key));
-      
-      const selectedColumns = Array.from(columnSelection);
-      
-      onSelectionChange({
-        rows: selectedRows,
-        columns: selectedColumns,
-        cells: [],
-      });
-    }
+    const selectedRows = Object.keys(rowSelection)
+      .filter(key => rowSelection[key])
+      .map(key => parseInt(key));
+    
+    const selectedColumns = Array.from(columnSelection);
+    
+    onSelectionChange({
+      rows: selectedRows,
+      columns: selectedColumns,
+      cells: [],
+    });
   }, [rowSelection, columnSelection, onSelectionChange]);
 
   return (
     <div className="w-full">
-      <div className="rounded-md border">
-        <table className="w-full text-sm">
-          <thead className="border-b bg-gray-50">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="px-4 py-2 text-left font-medium"
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
+      <div className="rounded-md border overflow-hidden">
+        <div className="overflow-x-auto max-w-full">
+          <table className="w-full text-sm min-w-full">
+            <thead className="border-b bg-gray-50">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      className="px-4 py-2 text-left font-medium whitespace-nowrap min-w-[100px]"
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody className="divide-y">
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id} className={row.getIsSelected() ? 'bg-blue-50' : ''}>
+                  {row.getVisibleCells().map((cell) => {
+                    const cellKey = `${row.index}-${cell.column.id}`;
+                    const validation = validations.get(cellKey);
+                    
+                    return (
+                      <td key={cell.id} className="px-4 py-2 data-table-cell relative">
+                        <div className="flex items-center gap-2">
+                          <span>{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>
+                          {validation && (
+                            <span className="flex-shrink-0">
+                              {validation.status === 'validated' && (
+                                <span className="text-green-600 text-xs" title={`✓ ${validation.notes || 'Valid'}`}>
+                                  ✓
+                                </span>
+                              )}
+                              {validation.status === 'warning' && (
+                                <span className="text-yellow-600 text-xs" title={`⚠ ${validation.notes || 'Warning'}`}>
+                                  ⚠️
+                                </span>
+                              )}
+                              {validation.status === 'error' && (
+                                <span className="text-red-600 text-xs" title={`✗ ${validation.notes || 'Error'}`}>
+                                  ❌
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        {validation && validation.validatedValue !== undefined && validation.validatedValue !== validation.originalValue && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Suggested: {String(validation.validatedValue)}
+                          </div>
                         )}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody className="divide-y">
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className={row.getIsSelected() ? 'bg-blue-50' : ''}>
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-2">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       
       <div className="flex items-center justify-between px-2 py-4">

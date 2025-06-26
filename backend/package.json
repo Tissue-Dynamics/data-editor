@@ -1,0 +1,25 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "test": "vitest",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.5.32",
+    "@cloudflare/workers-types": "^4.20250619.0",
+    "typescript": "^5.6.3",
+    "vitest": "2.1.4",
+    "wrangler": "^4.21.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.35",
+    "@anthropic-ai/sdk": "^0.55.0",
+    "drizzle-orm": "^0.44.2",
+    "hono": "^4.8.3"
+  }
+}

@@ -35,3 +35,34 @@ export interface TaskExample {
   requiresColumnSelection?: boolean;
   icon?: string;
 }
+
+// API types
+export interface TaskRequest {
+  prompt: string;
+  selectedRows?: number[];
+  selectedColumns?: string[];
+  data?: Record<string, unknown>[];
+}
+
+export interface ClaudeAnalysisResult {
+  analysis: string;
+  method: 'claude-desktop' | 'anthropic-api' | 'mock';
+  validations?: Array<{
+    rowIndex: number;
+    columnId: string;
+    status: 'valid' | 'warning' | 'error';
+    originalValue: unknown;
+    suggestedValue?: unknown;
+    reason: string;
+  }>;
+}
+
+export interface TaskResponse {
+  taskId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  message?: string;
+  result?: ClaudeAnalysisResult | string;
+  error?: string;
+  selectedRowsCount?: number;
+  selectedColumnsCount?: number;
+}

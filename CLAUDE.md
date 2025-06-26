@@ -106,10 +106,9 @@ Test data files are available in the `test-data/` directory:
 
 ## Zed Editor Tasks
 
-Three simple tasks are configured in Zed:
-- **Frontend Dev**: Runs validation then starts dev server
-- **Frontend Build**: Runs validation then builds for production  
-- **Frontend Dev (Fast)**: Skips validation for quick iterations
+Two tasks are configured in Zed:
+- **Dev: Full Stack**: Starts both backend (port 8787) and frontend (port 5173) with validation
+- **Dev: Full Stack (Fast)**: Same as above but skips frontend validation for faster startup
 
 ## Important Technical Decisions
 

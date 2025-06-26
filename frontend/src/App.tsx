@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { FileUploader } from './components/Upload/FileUploader';
 import { DataTable } from './components/DataTable/DataTable';
 import { TaskPanel } from './components/TaskPanel/TaskPanel';
 import type { DataRow, Selection } from './types/data';
 import type { ValidationState } from './types/validation';
+import type { Task, ClaudeAnalysisResult } from './types/tasks';
+import { api } from './services/api';
 
 function App() {
   const [data, setData] = useState<DataRow[]>([]);
@@ -13,26 +15,153 @@ function App() {
     columns: [],
     cells: [],
   });
-  const [validations] = useState<Map<string, ValidationState>>(new Map());
+  const [validations, setValidations] = useState<Map<string, ValidationState>>(new Map());
+  const [currentTask, setCurrentTask] = useState<Task | null>(null);
+  const [isTaskRunning, setIsTaskRunning] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
 
   const handleDataLoad = (loadedData: DataRow[], fileName: string) => {
     setData(loadedData);
     setFilename(fileName);
+    // Clear previous validations when new data is loaded
+    setValidations(new Map());
+    setCurrentTask(null);
+    setTaskError(null);
   };
 
-  const handleSelectionChange = (newSelection: Selection) => {
+  const handleSelectionChange = useCallback((newSelection: Selection) => {
     setSelection(newSelection);
-  };
+  }, []);
 
-  const handleExecuteTask = (prompt: string) => {
-    console.log('Executing task:', { prompt, selection });
-    // TODO: Implement actual task execution
-    alert(`Task will be executed:\nPrompt: ${prompt}\nSelection: ${selection.rows.length} rows, ${selection.columns.length} columns`);
+  const parseClaudeValidations = useCallback((claudeResult: ClaudeAnalysisResult) => {
+    console.log('parseClaudeValidations called with:', claudeResult);
+    
+    if (!claudeResult.validations) {
+      console.log('No validations found in Claude result');
+      return;
+    }
+
+    console.log(`Found ${claudeResult.validations.length} validations from Claude`);
+    const newValidations = new Map(validations);
+    
+    claudeResult.validations.forEach((validation, index) => {
+      const cellKey = `${validation.rowIndex}-${validation.columnId}`;
+      console.log(`Processing validation ${index + 1}: ${cellKey} = ${validation.status}`);
+      
+      const validationState: ValidationState = {
+        cellKey,
+        status: validation.status === 'valid' ? 'validated' : validation.status === 'warning' ? 'warning' : 'error',
+        originalValue: validation.originalValue,
+        validatedValue: validation.suggestedValue,
+        confidence: 0.9, // Default confidence
+        source: 'Claude AI',
+        notes: validation.reason,
+      };
+      
+      newValidations.set(cellKey, validationState);
+      console.log(`Added validation for ${cellKey}:`, validationState);
+    });
+    
+    console.log('Setting new validations map with', newValidations.size, 'entries');
+    setValidations(newValidations);
+  }, [validations]);
+
+  const handleExecuteTask = async (prompt: string) => {
+    setIsTaskRunning(true);
+    setTaskError(null);
+    
+    try {
+      // Create the task
+      const response = await api.executeTask({
+        prompt,
+        selectedRows: selection.rows,
+        selectedColumns: selection.columns,
+        data: data.filter((_, index) => selection.rows.includes(index)),
+      });
+      
+      // Create a task object for UI
+      const newTask: Task = {
+        id: response.taskId,
+        prompt,
+        selection: {
+          rows: selection.rows,
+          columns: selection.columns,
+        },
+        status: 'running',
+        createdAt: new Date(),
+      };
+      
+      setCurrentTask(newTask);
+      
+      // Poll for task completion
+      const pollForCompletion = async () => {
+        try {
+          const statusResponse = await api.getTaskStatus(response.taskId);
+          
+          if (statusResponse.status === 'completed') {
+            console.log('Task completed! Full response:', statusResponse);
+            console.log('Result type:', typeof statusResponse.result);
+            console.log('Result:', statusResponse.result);
+            
+            // Parse Claude results and update table validations
+            if (statusResponse.result && typeof statusResponse.result === 'object' && 'analysis' in statusResponse.result) {
+              console.log('Parsing Claude validations...');
+              parseClaudeValidations(statusResponse.result as ClaudeAnalysisResult);
+            } else {
+              console.log('No analysis object found in result');
+            }
+            
+            setCurrentTask({
+              ...newTask,
+              status: 'completed',
+              completedAt: new Date(),
+              result: {
+                success: true,
+                message: typeof statusResponse.result === 'string' ? statusResponse.result : 'Analysis completed',
+              },
+            });
+            setIsTaskRunning(false);
+          } else if (statusResponse.status === 'failed') {
+            setCurrentTask({
+              ...newTask,
+              status: 'failed',
+              completedAt: new Date(),
+              result: {
+                success: false,
+                error: statusResponse.error || 'Task failed',
+              },
+            });
+            setIsTaskRunning(false);
+          } else {
+            // Still processing, poll again
+            setTimeout(pollForCompletion, 1000);
+          }
+        } catch (error) {
+          setCurrentTask({
+            ...newTask,
+            status: 'failed',
+            completedAt: new Date(),
+            result: {
+              success: false,
+              error: error instanceof Error ? error.message : 'Task failed',
+            },
+          });
+          setIsTaskRunning(false);
+        }
+      };
+      
+      // Start polling after a short delay
+      setTimeout(pollForCompletion, 1000);
+      
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : 'Failed to execute task');
+      setIsTaskRunning(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 max-w-full">
         <h1 className="text-3xl font-bold mb-8">Data Analysis Tool</h1>
         
         {data.length === 0 ? (
@@ -40,35 +169,40 @@ function App() {
             <FileUploader onDataLoad={handleDataLoad} />
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="lg:col-span-2 space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+            <div className="xl:col-span-3 space-y-4 min-w-0">
               <div className="bg-white rounded-lg shadow p-4">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold">{filename}</h2>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
+                  <h2 className="text-xl font-semibold truncate">{filename}</h2>
                   <button
                     onClick={() => {
                       setData([]);
                       setFilename('');
                       setSelection({ rows: [], columns: [], cells: [] });
                     }}
-                    className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                    className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded transition-colors flex-shrink-0"
                   >
                     Upload New File
                   </button>
                 </div>
                 
-                <DataTable 
-                  data={data} 
-                  validations={validations}
-                  onSelectionChange={handleSelectionChange}
-                />
+                <div className="overflow-hidden">
+                  <DataTable 
+                    data={data} 
+                    validations={validations}
+                    onSelectionChange={handleSelectionChange}
+                  />
+                </div>
               </div>
             </div>
             
-            <div className="lg:col-span-1 lg:sticky lg:top-4 h-fit">
+            <div className="xl:col-span-1 xl:sticky xl:top-4 h-fit">
               <TaskPanel 
                 selection={selection}
                 onExecuteTask={handleExecuteTask}
+                isLoading={isTaskRunning}
+                currentTask={currentTask}
+                error={taskError}
               />
             </div>
           </div>

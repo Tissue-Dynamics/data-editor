@@ -1,0 +1,33 @@
+name = "data-editor-backend"
+main = "src/index.ts"
+compatibility_date = "2025-06-20"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# Development configuration
+[dev]
+port = 8787
+local_protocol = "http"
+
+# Environment variables (non-sensitive)
+[vars]
+ENVIRONMENT = "development"
+
+# Secrets are configured via: wrangler secret put ANTHROPIC_API_KEY
+# This makes them available both locally and in production
+
+# Future bindings (uncomment when ready)
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "data-editor"
+# database_id = "your-database-id"
+
+# [[r2_buckets]]
+# binding = "R2_BUCKET"
+# bucket_name = "data-editor-files"
+
+# Workers AI binding for future use
+# [ai]
+# binding = "AI"
