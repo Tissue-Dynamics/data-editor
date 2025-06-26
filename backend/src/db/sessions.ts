@@ -1,4 +1,5 @@
-import type { D1Database } from '@cloudflare/workers-types';
+import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
+import { StorageService } from '../services/storage';
 
 export interface Session {
   id: string;
@@ -28,13 +29,23 @@ export interface DataSnapshot {
 }
 
 export class SessionService {
-  constructor(private db: D1Database) {}
+  private storage?: StorageService;
+  
+  constructor(
+    private db: D1Database,
+    r2Bucket?: R2Bucket
+  ) {
+    if (r2Bucket) {
+      this.storage = new StorageService(r2Bucket);
+    }
+  }
 
   async createSession(params: {
     name: string;
     description?: string;
     file_name?: string;
     file_type?: string;
+    file_content?: ArrayBuffer | string;
     data: any[];
     column_names: string[];
   }): Promise<Session> {
@@ -80,6 +91,21 @@ export class SessionService {
         'user'
       )
     ]);
+    
+    // Upload file to R2 if provided
+    if (params.file_content && params.file_name && this.storage) {
+      try {
+        await this.storage.uploadFile(
+          sessionId,
+          params.file_name,
+          params.file_content,
+          params.file_type || 'unknown'
+        );
+      } catch (error) {
+        console.error('Failed to upload file to R2:', error);
+        // Continue even if file upload fails
+      }
+    }
     
     return {
       id: sessionId,

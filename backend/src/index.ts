@@ -35,7 +35,7 @@ app.get('/health', (c) => {
 // Session endpoints
 app.get('/api/sessions', async (c) => {
   try {
-    const sessionService = new SessionService(c.env.DB);
+    const sessionService = new SessionService(c.env.DB, c.env.R2_BUCKET);
     const sessions = await sessionService.listSessions();
     return c.json({ sessions });
   } catch (error) {
@@ -53,7 +53,7 @@ app.post('/api/sessions', async (c) => {
       return c.json({ error: 'Missing required fields' }, 400);
     }
     
-    const sessionService = new SessionService(c.env.DB);
+    const sessionService = new SessionService(c.env.DB, c.env.R2_BUCKET);
     const session = await sessionService.createSession({
       name,
       description,
@@ -73,7 +73,7 @@ app.post('/api/sessions', async (c) => {
 app.get('/api/sessions/:sessionId', async (c) => {
   try {
     const sessionId = c.req.param('sessionId');
-    const sessionService = new SessionService(c.env.DB);
+    const sessionService = new SessionService(c.env.DB, c.env.R2_BUCKET);
     
     const session = await sessionService.getSession(sessionId);
     if (!session) {
@@ -99,7 +99,7 @@ app.get('/api/sessions/:sessionId', async (c) => {
 app.delete('/api/sessions/:sessionId', async (c) => {
   try {
     const sessionId = c.req.param('sessionId');
-    const sessionService = new SessionService(c.env.DB);
+    const sessionService = new SessionService(c.env.DB, c.env.R2_BUCKET);
     
     await sessionService.deleteSession(sessionId);
     return c.json({ success: true });

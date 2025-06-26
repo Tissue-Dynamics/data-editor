@@ -25,9 +25,9 @@ database_name = "data-editor"
 database_id = "placeholder-for-actual-db-id"
 preview_database_id = "placeholder-for-preview-db-id"
 
-# [[r2_buckets]]
-# binding = "R2_BUCKET"
-# bucket_name = "data-editor-files"
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "data-editor-files"
 
 # Workers AI binding for future use
 # [ai]
