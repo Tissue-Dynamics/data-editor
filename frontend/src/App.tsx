@@ -90,8 +90,17 @@ function App() {
       setCurrentSession(response.session);
       setData(response.data);
       setOriginalData(response.data);
-      setDataHistory([response.data]);
-      setHistoryIndex(0);
+      
+      // Load version history if available
+      if (response.snapshots && response.snapshots.length > 0) {
+        const history = response.snapshots.map(s => s.data);
+        setDataHistory(history);
+        setHistoryIndex(history.length - 1); // Set to latest version
+      } else {
+        setDataHistory([response.data]);
+        setHistoryIndex(0);
+      }
+      
       setFilename(response.session.file_name || 'Session Data');
       setValidations(new Map());
       setCurrentTask(null);
@@ -106,14 +115,25 @@ function App() {
     }
   };
 
-  const saveToHistory = useCallback((newData: DataRow[]) => {
+  const saveToHistory = useCallback((newData: DataRow[], changeDescription?: string) => {
     setDataHistory(prev => {
       const newHistory = prev.slice(0, historyIndex + 1); // Remove future history
       newHistory.push(newData);
       return newHistory;
     });
     setHistoryIndex(prev => prev + 1);
-  }, [historyIndex]);
+    
+    // Save snapshot to database if we have a session
+    if (currentSession) {
+      api.saveSnapshot(
+        currentSession.id,
+        newData,
+        changeDescription || 'Data updated'
+      ).catch(error => {
+        console.error('Failed to save snapshot:', error);
+      });
+    }
+  }, [historyIndex, currentSession]);
 
   const navigateHistory = useCallback((direction: 'back' | 'forward') => {
     if (direction === 'back' && historyIndex > 0) {
@@ -133,7 +153,7 @@ function App() {
     };
     
     setData(newData);
-    saveToHistory(newData);
+    saveToHistory(newData, `Applied validation to ${columnId} at row ${rowIndex + 1}`);
     
     // Update validation state
     const cellKey = `${rowIndex}-${columnId}`;
@@ -150,7 +170,7 @@ function App() {
       }
       return newValidations;
     });
-  }, [data, saveToHistory]);
+  }, [data, saveToHistory, currentSession]);
 
   const confirmValidation = useCallback((rowIndex: number, columnId: string) => {
     const cellKey = `${rowIndex}-${columnId}`;
@@ -220,7 +240,7 @@ function App() {
     };
 
     setData(newData);
-    saveToHistory(newData);
+    saveToHistory(newData, `Applied validation to ${validation.columnId} at row ${validation.rowIndex + 1}`);
 
     // Update validation state to mark as applied
     const cellKey = `${validation.rowIndex}-${validation.columnId}`;
@@ -237,7 +257,7 @@ function App() {
       }
       return newValidations;
     });
-  }, [data, saveToHistory]);
+  }, [data, saveToHistory, currentSession]);
 
   const handleSelectionChange = useCallback((newSelection: Selection) => {
     setSelection(newSelection);

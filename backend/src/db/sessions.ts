@@ -142,6 +142,16 @@ export class SessionService {
     return result || null;
   }
 
+  async getAllSnapshots(sessionId: string): Promise<DataSnapshot[]> {
+    const result = await this.db.prepare(`
+      SELECT * FROM data_snapshots
+      WHERE session_id = ?
+      ORDER BY version ASC
+    `).bind(sessionId).all<DataSnapshot>();
+    
+    return result.results || [];
+  }
+
   async getSessionData(sessionId: string, version?: number): Promise<DataSnapshot | null> {
     let query;
     

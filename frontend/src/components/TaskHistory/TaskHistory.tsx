@@ -27,17 +27,33 @@ export function TaskHistory({ sessionId, onTaskSelect }: TaskHistoryProps) {
     loadTasks();
   }, [sessionId]);
 
-  const loadTasks = async () => {
+  const loadTasks = async (isInitialLoad = true) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (isInitialLoad) {
+        setLoading(true);
+        setError(null);
+      }
       const response = await api.getSessionTasks(sessionId);
       setTasks(response.tasks);
+      
+      // Check if any tasks are still running
+      const hasRunningTasks = response.tasks.some(t => 
+        t.status === 'pending' || t.status === 'processing'
+      );
+      
+      // If there are running tasks, set up polling
+      if (hasRunningTasks && !isInitialLoad) {
+        setTimeout(() => loadTasks(false), 5000); // Poll every 5 seconds
+      }
     } catch (error) {
       console.error('Failed to load task history:', error);
-      setError('Failed to load task history');
+      if (isInitialLoad) {
+        setError('Failed to load task history');
+      }
     } finally {
-      setLoading(false);
+      if (isInitialLoad) {
+        setLoading(false);
+      }
     }
   };
 

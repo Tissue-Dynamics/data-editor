@@ -99,6 +99,12 @@ export const api = {
     session: SessionInfo;
     data: any[];
     column_names: string[];
+    snapshots?: Array<{
+      version: number;
+      data: any[];
+      created_at: string;
+      change_description?: string;
+    }>;
   }> {
     const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
       method: 'GET',
@@ -109,6 +115,20 @@ export const api = {
     return handleResponse(response);
   },
 
+  async saveSnapshot(sessionId: string, data: any[], changeDescription: string): Promise<{
+    success: boolean;
+    version: number;
+  }> {
+    const response = await fetch(`${API_URL}/api/sessions/${sessionId}/snapshots`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ data, changeDescription }),
+    });
+    return handleResponse(response);
+  },
+  
   async deleteSession(sessionId: string): Promise<{ success: boolean }> {
     const response = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
       method: 'DELETE',

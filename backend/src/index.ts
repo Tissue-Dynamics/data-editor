@@ -87,14 +87,52 @@ app.get('/api/sessions/:sessionId', async (c) => {
       return c.json({ error: 'Session data not found' }, 404);
     }
     
+    // Get all snapshots for version history
+    const allSnapshots = await sessionService.getAllSnapshots(sessionId);
+    
     return c.json({
       session,
       data: JSON.parse(snapshot.data),
-      column_names: JSON.parse(snapshot.column_names)
+      column_names: JSON.parse(snapshot.column_names),
+      snapshots: allSnapshots.map(s => ({
+        version: s.version,
+        data: JSON.parse(s.data),
+        created_at: new Date(s.created_at).toISOString(),
+        change_description: s.change_description
+      }))
     });
   } catch (error) {
     console.error('Failed to get session:', error);
     return c.json({ error: 'Failed to get session' }, 500);
+  }
+});
+
+app.post('/api/sessions/:sessionId/snapshots', async (c) => {
+  try {
+    const sessionId = c.req.param('sessionId');
+    const body = await c.req.json();
+    const { data, changeDescription } = body;
+    
+    if (!data) {
+      return c.json({ error: 'Data is required' }, 400);
+    }
+    
+    const sessionService = new SessionService(c.env.DB, c.env.R2_BUCKET);
+    
+    const newVersion = await sessionService.saveSnapshot(
+      sessionId,
+      data,
+      changeDescription || 'Manual update',
+      'user'
+    );
+    
+    return c.json({ 
+      success: true,
+      version: newVersion
+    });
+  } catch (error) {
+    console.error('Failed to save snapshot:', error);
+    return c.json({ error: 'Failed to save snapshot' }, 500);
   }
 });
 
