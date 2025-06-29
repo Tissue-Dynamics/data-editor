@@ -27,7 +27,6 @@ interface ValidationSummary {
 interface ValidationContextType {
   // Validation state
   validations: Map<string, ValidationState>;
-  setValidations: (validations: Map<string, ValidationState>) => void;
   
   // Validation summary
   validationSummary: ValidationSummary | null;
@@ -38,7 +37,7 @@ interface ValidationContextType {
   getCellHistory: (cellKey: string) => CellHistoryEntry[];
   
   // Validation operations
-  confirmValidation: (cellKey: string) => void;
+  confirmValidation: (rowIndex: number, columnId: string) => void;
   applyValidationValue: (rowIndex: number, columnId: string, value: CellValue) => void;
   clearValidations: () => void;
   parseClaudeValidations: (result: ClaudeAnalysisResult, taskId?: string, taskPrompt?: string) => void;
@@ -72,7 +71,6 @@ export function ValidationProvider({
 
   const value: ValidationContextType = {
     validations,
-    setValidations,
     validationSummary,
     setValidationSummary,
     cellHistory,

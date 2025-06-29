@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -14,33 +14,98 @@ import type { ValidationState } from '../../types/validation';
 import { ValidationIndicator } from './ValidationIndicator';
 
 // Helper functions for status orbs - new color scheme per user specs
-const getStatusOrbColor = (status: ValidationState['status']): string => {
-  switch (status) {
-    case 'auto_updated': return 'bg-orange-500'; // Orange for auto-updated values
-    case 'confirmed': return 'bg-green-500';     // Green for user-confirmed values  
-    case 'conflict': return 'bg-red-500';        // Red for conflicts/unconfirmable data
-    case 'unchecked': return 'bg-gray-300';      // Grey for never checked
-    case 'pending': return 'bg-gray-400 animate-pulse'; // Loading state
-    default: return 'bg-gray-300';               // Default grey
-  }
-};
+// const getStatusOrbColor = (status: ValidationState['status']): string => {
+//   switch (status) {
+//     case 'auto_updated': return 'bg-orange-500'; // Orange for auto-updated values
+//     case 'confirmed': return 'bg-green-500';     // Green for user-confirmed values  
+//     case 'conflict': return 'bg-red-500';        // Red for conflicts/unconfirmable data
+//     case 'unchecked': return 'bg-gray-300';      // Grey for never checked
+//     case 'pending': return 'bg-gray-400 animate-pulse'; // Loading state
+//     default: return 'bg-gray-300';               // Default grey
+//   }
+// };
 
-const getStatusTooltip = (validation: ValidationState): string => {
-  switch (validation.status) {
-    case 'auto_updated':
-      return `Auto-updated: ${validation.notes || 'Value updated by AI'}\nClick to confirm`;
-    case 'confirmed':
-      return `Confirmed: ${validation.notes || 'User validated this value'}`;
-    case 'conflict':
-      return `Conflict: ${validation.notes || 'AI found conflicting information'}`;
-    case 'unchecked':
-      return `Unchecked: Click to mark as confirmed`;
-    case 'pending':
-      return 'Analyzing...';
-    default:
-      return validation.notes || 'No validation data';
-  }
-};
+// const getStatusTooltip = (validation: ValidationState): string => {
+//   switch (validation.status) {
+//     case 'auto_updated':
+//       return `Auto-updated: ${validation.notes || 'Value updated by AI'}\nClick to confirm`;
+//     case 'confirmed':
+//       return `Confirmed: ${validation.notes || 'User validated this value'}`;
+//     case 'conflict':
+//       return `Conflict: ${validation.notes || 'AI found conflicting information'}`;
+//     case 'unchecked':
+//       return `Unchecked: Click to mark as confirmed`;
+//     case 'pending':
+//       return 'Analyzing...';
+//     default:
+//       return validation.notes || 'No validation data';
+//   }
+// };
+
+// Memoized cell component to prevent re-renders
+const DataCell = memo<{
+  value: string | number | null;
+  validation: ValidationState | undefined;
+  rowIndex: number;
+  columnId: string;
+  onCellClick?: (rowIndex: number, columnId: string, event: React.MouseEvent) => void;
+  onApplyValidation?: (rowIndex: number, columnId: string) => void;
+  onConfirmValidation?: (rowIndex: number, columnId: string) => void;
+}>(({ value, validation, rowIndex, columnId, onCellClick, onApplyValidation, onConfirmValidation }) => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    onCellClick?.(rowIndex, columnId, e);
+  }, [rowIndex, columnId, onCellClick]);
+
+  const handleValidationClick = useCallback(() => {
+    if (!validation) return;
+    
+    if (validation.status === 'auto_updated' && onConfirmValidation) {
+      onConfirmValidation(rowIndex, columnId);
+    } else if (validation.status === 'unchecked' && onApplyValidation) {
+      onApplyValidation(rowIndex, columnId);
+    }
+  }, [validation, rowIndex, columnId, onConfirmValidation, onApplyValidation]);
+
+  return (
+    <div 
+      className="flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-gray-50"
+      onClick={handleClick}
+    >
+      <span className="flex-1">{value ?? ''}</span>
+      {validation && (
+        <div onClick={(e) => { e.stopPropagation(); handleValidationClick(); }}>
+          <ValidationIndicator state={validation} />
+        </div>
+      )}
+    </div>
+  );
+});
+
+DataCell.displayName = 'DataCell';
+
+// Memoized column header component
+const ColumnHeader = memo<{
+  columnId: string;
+  isSelected: boolean;
+  onToggleSelection: (columnId: string) => void;
+}>(({ columnId, isSelected, onToggleSelection }) => {
+  const handleClick = useCallback(() => {
+    onToggleSelection(columnId);
+  }, [columnId, onToggleSelection]);
+
+  return (
+    <div
+      className={`cursor-pointer select-none px-2 py-1 ${
+        isSelected ? 'bg-blue-100' : ''
+      }`}
+      onClick={handleClick}
+    >
+      {columnId}
+    </div>
+  );
+});
+
+ColumnHeader.displayName = 'ColumnHeader';
 
 interface DataTableProps {
   data: DataRow[];
@@ -48,11 +113,11 @@ interface DataTableProps {
   onSelectionChange?: (selection: Selection) => void;
   onApplyValidation?: (rowIndex: number, columnId: string) => void;
   onConfirmValidation?: (rowIndex: number, columnId: string) => void;
-  onCellClick?: (rowIndex: number, columnId: string, position: { x: number; y: number }) => void;
+  onCellClick?: (rowIndex: number, columnId: string, event: React.MouseEvent) => void;
 }
 
-export const DataTable: React.FC<DataTableProps> = ({ 
-  data, 
+export const DataTable = memo<DataTableProps>(({
+  data,
   validations = new Map(),
   onSelectionChange,
   onApplyValidation,
@@ -63,6 +128,19 @@ export const DataTable: React.FC<DataTableProps> = ({
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnSelection, setColumnSelection] = useState<Set<string>>(new Set());
 
+  const toggleColumnSelection = useCallback((columnId: string) => {
+    setColumnSelection(prev => {
+      const newSelection = new Set(prev);
+      if (newSelection.has(columnId)) {
+        newSelection.delete(columnId);
+      } else {
+        newSelection.add(columnId);
+      }
+      return newSelection;
+    });
+  }, []);
+
+  // Memoize columns based only on data structure
   const columns = useMemo<ColumnDef<DataRow>[]>(() => {
     if (data.length === 0) return [];
 
@@ -94,41 +172,13 @@ export const DataTable: React.FC<DataTableProps> = ({
       cols.push({
         id: key,
         accessorKey: key,
-        header: () => (
-          <div
-            className={`cursor-pointer select-none ${
-              columnSelection.has(key) ? 'bg-blue-100' : ''
-            }`}
-            onClick={() => {
-              const newSelection = new Set(columnSelection);
-              if (newSelection.has(key)) {
-                newSelection.delete(key);
-              } else {
-                newSelection.add(key);
-              }
-              setColumnSelection(newSelection);
-            }}
-          >
-            {key}
-          </div>
-        ),
-        cell: ({ row, column }) => {
-          const value = row.getValue(column.id) as string | number | null;
-          const cellKey = `${row.index}-${column.id}`;
-          const validation = validations.get(cellKey);
-
-          return (
-            <div className="flex items-center gap-1">
-              <span>{value ?? ''}</span>
-              {validation && <ValidationIndicator state={validation} />}
-            </div>
-          );
-        },
+        header: () => null, // We'll render this separately
+        cell: () => null,   // We'll render this separately
       });
     });
 
     return cols;
-  }, [data, columnSelection, validations]);
+  }, [data]);
 
   const table = useReactTable({
     data,
@@ -137,6 +187,7 @@ export const DataTable: React.FC<DataTableProps> = ({
       sorting,
       rowSelection,
     },
+    enableRowSelection: true,
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
@@ -144,6 +195,7 @@ export const DataTable: React.FC<DataTableProps> = ({
     getSortedRowModel: getSortedRowModel(),
   });
 
+  // Handle selection changes
   React.useEffect(() => {
     const selectedRows = Object.keys(rowSelection)
       .filter(key => rowSelection[key])
@@ -151,12 +203,20 @@ export const DataTable: React.FC<DataTableProps> = ({
     
     const selectedColumns = Array.from(columnSelection);
     
-    onSelectionChange({
+    onSelectionChange?.({
       rows: selectedRows,
       columns: selectedColumns,
       cells: [],
     });
   }, [rowSelection, columnSelection, onSelectionChange]);
+
+  if (data.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        No data available
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">
@@ -169,74 +229,54 @@ export const DataTable: React.FC<DataTableProps> = ({
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
-                      className="px-4 py-2 text-left font-medium whitespace-nowrap min-w-[100px]"
+                      className="text-left font-medium text-gray-700"
+                      style={{ width: header.getSize() }}
                     >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
+                      {header.isPlaceholder ? null : (
+                        header.column.id === 'select' ? (
+                          flexRender(
                             header.column.columnDef.header,
                             header.getContext()
-                          )}
+                          )
+                        ) : (
+                          <ColumnHeader
+                            columnId={header.column.id}
+                            isSelected={columnSelection.has(header.column.id)}
+                            onToggleSelection={toggleColumnSelection}
+                          />
+                        )
+                      )}
                     </th>
                   ))}
                 </tr>
               ))}
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-200 bg-white">
               {table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className={row.getIsSelected() ? 'bg-blue-50' : ''}>
-                  {row.getVisibleCells().map((cell) => {
-                    const cellKey = `${row.index}-${cell.column.id}`;
-                    const validation = validations.get(cellKey);
-                    
-                    return (
-                      <td 
-                        key={cell.id} 
-                        className="px-4 py-2 data-table-cell relative group cursor-pointer"
-                        onClick={(e) => {
-                          if (onCellClick) {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            onCellClick(row.index, cell.column.id, { x: rect.right, y: rect.top });
-                          }
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          {/* Status Orb */}
-                          <div className="flex-shrink-0">
-                            {validation ? (
-                              <div 
-                                className={`w-2 h-2 rounded-full ${getStatusOrbColor(validation.status)} ${
-                                  (validation.status === 'auto_updated' || validation.status === 'unchecked') ? 'cursor-pointer hover:scale-125 transition-transform' : ''
-                                }`}
-                                title={getStatusTooltip(validation)}
-                                onClick={() => {
-                                  if (validation.status === 'auto_updated' && onConfirmValidation) {
-                                    onConfirmValidation(row.index, cell.column.id);
-                                  } else if (validation.status === 'unchecked' && onConfirmValidation) {
-                                    onConfirmValidation(row.index, cell.column.id);
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300" title="No validation data" />
-                            )}
-                          </div>
-                          
-                          {/* Cell Value */}
-                          <span className="flex-1">{flexRender(cell.column.columnDef.cell, cell.getContext())}</span>
-                        </div>
-                        
-                        {/* Action Tooltip on Hover */}
-                        {validation && validation.status === 'auto_updated' && (
-                          <div className="absolute z-10 left-0 top-full mt-1 bg-black text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                            Click to confirm: {String(validation.validatedValue)}
-                            <br />
-                            {validation.notes}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
+                <tr 
+                  key={row.id}
+                  className={row.getIsSelected() ? 'bg-blue-50' : ''}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="text-sm">
+                      {cell.column.id === 'select' ? (
+                        flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )
+                      ) : (
+                        <DataCell
+                          value={row.getValue(cell.column.id) as string | number | null}
+                          validation={validations.get(`${row.index}-${cell.column.id}`)}
+                          rowIndex={row.index}
+                          columnId={cell.column.id}
+                          onCellClick={onCellClick}
+                          onApplyValidation={onApplyValidation}
+                          onConfirmValidation={onConfirmValidation}
+                        />
+                      )}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -244,28 +284,31 @@ export const DataTable: React.FC<DataTableProps> = ({
         </div>
       </div>
       
+      {/* Pagination controls */}
       <div className="flex items-center justify-between px-2 py-4">
-        <div className="text-sm text-gray-700">
-          {Object.keys(rowSelection).length} of {data.length} row(s) selected.
-          {columnSelection.size > 0 && ` ${columnSelection.size} column(s) selected.`}
-        </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <button
-            className="px-3 py-1 border rounded hover:bg-gray-100"
+            className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
           >
             Previous
           </button>
           <button
-            className="px-3 py-1 border rounded hover:bg-gray-100"
+            className="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
           >
             Next
           </button>
         </div>
+        <span className="text-sm text-gray-700">
+          Page {table.getState().pagination.pageIndex + 1} of{' '}
+          {table.getPageCount()}
+        </span>
       </div>
     </div>
   );
-};
+});
+
+DataTable.displayName = 'DataTable';

@@ -1,13 +1,16 @@
-import type { TaskRequest, TaskResponse, BatchTask } from '../types';
+import type { TaskRequest, TaskResponse, BatchTask } from '../types/tasks';
 import type { SessionInfo } from '../components/SessionsList/SessionsList';
 import type { DataRow } from '../types/data';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8787';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  status: number;
+  
+  constructor(status: number, message: string) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
   }
 }
 

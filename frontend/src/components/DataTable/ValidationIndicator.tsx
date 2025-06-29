@@ -11,14 +11,16 @@ export const ValidationIndicator: React.FC<ValidationIndicatorProps> = ({ state 
 
   const getIcon = () => {
     switch (state.status) {
-      case 'validated':
+      case 'confirmed':
         return <Check className="w-4 h-4 text-green-600" />;
-      case 'warning':
-        return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
-      case 'error':
+      case 'auto_updated':
+        return <AlertTriangle className="w-4 h-4 text-orange-600" />;
+      case 'conflict':
         return <X className="w-4 h-4 text-red-600" />;
       case 'pending':
         return <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />;
+      case 'unchecked':
+        return <div className="w-4 h-4 border-2 border-gray-300 rounded-full" />;
       default:
         return null;
     }

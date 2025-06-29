@@ -1,5 +1,6 @@
-import React, { createContext, useContext, ReactNode } from 'react';
-import type { Task, ClaudeAnalysisResult } from '../types/tasks';
+import React, { createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
+import type { Task } from '../types/tasks';
 import { useTaskManagement } from '../hooks/useTaskManagement';
 import { useData } from './DataContext';
 import { useSession } from './SessionContext';

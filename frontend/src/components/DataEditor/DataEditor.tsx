@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
 import { DataTable } from '../DataTable/DataTable';
+import { VirtualDataTable } from '../DataTable/VirtualDataTable';
 import { VersionHistory } from '../VersionHistory/VersionHistory';
 import { ValidationLegend } from '../ValidationLegend/ValidationLegend';
 import { ValidationSummary } from '../ValidationSummary/ValidationSummary';
@@ -15,11 +16,9 @@ export function DataEditor() {
   const { 
     data,
     filename,
-    selection,
     handleSelectionChange,
     handleDeleteRow,
-    handleDeleteRows,
-    resetData
+    handleDeleteRows
   } = useData();
   
   const {
@@ -86,9 +85,9 @@ export function DataEditor() {
     <div className="xl:col-span-3 space-y-4">
       {historyIndex !== -1 && (
         <VersionHistory
-          history={dataHistory}
-          currentVersion={historyIndex}
-          onSelectVersion={handleNavigateHistory}
+          dataHistory={dataHistory}
+          currentIndex={historyIndex}
+          onNavigate={(direction) => handleNavigateHistory(historyIndex + (direction === 'forward' ? 1 : -1))}
         />
       )}
       
@@ -133,14 +132,25 @@ export function DataEditor() {
         
         <div className="overflow-hidden">
           <DataTableErrorBoundary>
-            <DataTable 
-              data={displayData} 
-              validations={validations}
-              onSelectionChange={handleSelectionChange}
-              onConfirmValidation={confirmValidation}
-              onCellClick={handleCellClick}
-              onApplyValidation={handleApplyValidation}
-            />
+            {displayData.length > 1000 ? (
+              <VirtualDataTable 
+                data={displayData} 
+                validations={validations}
+                onSelectionChange={handleSelectionChange}
+                onConfirmValidation={confirmValidation}
+                onCellClick={handleCellClick}
+                onApplyValidation={handleApplyValidation}
+              />
+            ) : (
+              <DataTable 
+                data={displayData} 
+                validations={validations}
+                onSelectionChange={handleSelectionChange}
+                onConfirmValidation={confirmValidation}
+                onCellClick={handleCellClick}
+                onApplyValidation={handleApplyValidation}
+              />
+            )}
           </DataTableErrorBoundary>
         </div>
       </div>
