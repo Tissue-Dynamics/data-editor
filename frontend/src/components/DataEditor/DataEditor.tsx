@@ -18,7 +18,8 @@ export function DataEditor() {
     filename,
     handleSelectionChange,
     handleDeleteRow,
-    handleDeleteRows
+    handleDeleteRows,
+    resetData
   } = useData();
   
   const {

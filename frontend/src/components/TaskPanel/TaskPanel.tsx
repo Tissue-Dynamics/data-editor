@@ -101,10 +101,8 @@ export function TaskPanel() {
         {isExpanded && (
           <div className="mt-2">
             <TaskExamples 
-              onSelectExample={handleSelectExample}
-              selectedExample={selectedExample}
-              hasRowSelection={rowCount > 0}
-              hasColumnSelection={columnCount > 0}
+              onExampleClick={handleSelectExample}
+              currentSelection={selection}
             />
           </div>
         )}

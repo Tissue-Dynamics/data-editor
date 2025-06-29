@@ -167,14 +167,19 @@ export function useTaskManagement(
     
     try {
       // Create the task
-      const response = await api.executeTask({
+      const taskRequest: Parameters<typeof api.executeTask>[0] = {
         prompt,
         selectedRows: selection.rows,
         selectedColumns: selection.columns,
         data: data.filter((_, index) => selection.rows.includes(index)),
-        sessionId: currentSession?.id,
         batchMode: options?.batchMode,
-      });
+      };
+      
+      if (currentSession?.id) {
+        taskRequest.sessionId = currentSession.id;
+      }
+      
+      const response = await api.executeTask(taskRequest);
       
       // Create a task object for UI with real ID
       const newTask: Task = {
@@ -280,15 +285,20 @@ export function useTaskManagement(
         
         try {
           // Create a batch with single task
-          const batchResponse = await api.createBatch({
+          const batchRequest: Parameters<typeof api.createBatch>[0] = {
             tasks: [{
               prompt,
               selectedRows: selection.rows,
               selectedColumns: selection.columns,
               data: data.filter((_, index) => selection.rows.includes(index)),
             }],
-            sessionId: currentSession?.id,
-          });
+          };
+          
+          if (currentSession?.id) {
+            batchRequest.sessionId = currentSession.id;
+          }
+          
+          const batchResponse = await api.createBatch(batchRequest);
           
           // Show batch processing UI
           setCurrentTask({
