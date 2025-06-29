@@ -68,12 +68,12 @@ const DataCell = memo<{
 
   return (
     <div 
-      className="flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-gray-50"
+      className="flex items-start gap-1 px-2 py-1 cursor-pointer hover:bg-gray-50 max-h-16 overflow-y-auto"
       onClick={handleClick}
     >
-      <span className="flex-1">{value ?? ''}</span>
+      <span className="flex-1 break-words min-w-0" title={String(value ?? '')}>{value ?? ''}</span>
       {validation && (
-        <div onClick={(e) => { e.stopPropagation(); handleValidationClick(); }}>
+        <div className="flex-shrink-0 mt-0.5" onClick={(e) => { e.stopPropagation(); handleValidationClick(); }}>
           <ValidationIndicator state={validation} />
         </div>
       )}
@@ -149,20 +149,24 @@ export const DataTable = memo<DataTableProps>(({
       {
         id: 'select',
         header: ({ table }) => (
-          <input
-            type="checkbox"
-            checked={table.getIsAllRowsSelected()}
-            onChange={table.getToggleAllRowsSelectedHandler()}
-            className="cursor-pointer"
-          />
+          <div className="flex items-center justify-center h-full px-2">
+            <input
+              type="checkbox"
+              checked={table.getIsAllRowsSelected()}
+              onChange={table.getToggleAllRowsSelectedHandler()}
+              className="cursor-pointer"
+            />
+          </div>
         ),
         cell: ({ row }) => (
-          <input
-            type="checkbox"
-            checked={row.getIsSelected()}
-            onChange={row.getToggleSelectedHandler()}
-            className="cursor-pointer"
-          />
+          <div className="flex items-center justify-center h-full px-2">
+            <input
+              type="checkbox"
+              checked={row.getIsSelected()}
+              onChange={row.getToggleSelectedHandler()}
+              className="cursor-pointer"
+            />
+          </div>
         ),
         size: 40,
       },
@@ -255,10 +259,10 @@ export const DataTable = memo<DataTableProps>(({
               {table.getRowModel().rows.map((row) => (
                 <tr 
                   key={row.id}
-                  className={row.getIsSelected() ? 'bg-blue-50' : ''}
+                  className={`${row.getIsSelected() ? 'bg-blue-50' : ''} h-16`}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="text-sm">
+                    <td key={cell.id} className="text-sm h-16 p-0">
                       {cell.column.id === 'select' ? (
                         flexRender(
                           cell.column.columnDef.cell,
